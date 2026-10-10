@@ -7,7 +7,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { EwComment, EwFix, EwMethods, EwModItem, EwNotification, EwPost, EwProfile, EwRequest, EwStats, EwStatus } from '@shared/ew'
 
 const PAGE = 15
-const POST_COLUMNS = 'id,author_id,kind,text,has_image,bg,tags,correct_me,challenge_day,ai_answer,solved_comment_id,hidden,created_at,expires_at,author:ew_profiles(name,avatar,level)'
+const POST_COLUMNS = 'id,author_id,kind,text,has_image,bg,tags,correct_me,challenge_day,ai_answer,solved_comment_id,hidden,created_at,expires_at,author:ew_profiles!ew_posts_author_id_fkey(name,avatar,level)'
 const AUTHOR_FALLBACK = { name: 'Someone', avatar: '🙂', level: 'Beginner' as const }
 
 function protect(s: string): string {
@@ -275,8 +275,8 @@ export class EwService {
       case 'thread': {
         const id = req.args.postId
         const [f, c] = await Promise.all([
-          db.from('ew_fixes').select('id,post_id,author_id,text,note,helpful,hidden,created_at,author:ew_profiles(name,avatar,level)').eq('post_id', id).order('created_at'),
-          db.from('ew_comments').select('id,post_id,parent_id,author_id,text,hidden,created_at,author:ew_profiles(name,avatar,level)').eq('post_id', id).order('created_at')
+          db.from('ew_fixes').select('id,post_id,author_id,text,note,helpful,hidden,created_at,author:ew_profiles!ew_fixes_author_id_fkey(name,avatar,level)').eq('post_id', id).order('created_at'),
+          db.from('ew_comments').select('id,post_id,parent_id,author_id,text,hidden,created_at,author:ew_profiles!ew_comments_author_id_fkey(name,avatar,level)').eq('post_id', id).order('created_at')
         ])
         if (f.error) fail(f.error)
         if (c.error) fail(c.error)

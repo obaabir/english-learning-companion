@@ -18,6 +18,16 @@ import { SelectionSaveMenu } from '@renderer/components/SelectionSaveMenu'
 export function App(): ReactNode {
   const page = useApp((s) => s.page)
   const [youtubeVisited, setYoutubeVisited] = useState(false)
+  // Reload button (top left): remounts only the section on screen so it loads its data again.
+  const [reloads, setReloads] = useState<Record<string, number>>({})
+  useEffect(() => {
+    const onReload = (): void => {
+      const p = useApp.getState().page
+      setReloads((r) => ({ ...r, [p]: (r[p] ?? 0) + 1 }))
+    }
+    window.addEventListener('elc:reload-section', onReload)
+    return () => window.removeEventListener('elc:reload-section', onReload)
+  }, [])
   useEffect(() => {
     if (page === 'youtube') setYoutubeVisited(true)
   }, [page])
@@ -53,17 +63,17 @@ export function App(): ReactNode {
       </div>
       <AppShell>
         {/* Movie Mode stays mounted so the subtitle feed and scroll position survive page switches. */}
-        <div className={page === 'movie' ? 'anim-fade-in h-full' : 'hidden'}>
+        <div key={`movie-${reloads.movie ?? 0}`} className={page === 'movie' ? 'anim-fade-in h-full' : 'hidden'}>
           <MovieMode />
         </div>
         {/* Mounted on first visit, then kept (paused while hidden) so the video and selection survive. */}
         {youtubeVisited && (
-          <div className={page === 'youtube' ? 'anim-fade-in h-full' : 'hidden'}>
+          <div key={`youtube-${reloads.youtube ?? 0}`} className={page === 'youtube' ? 'anim-fade-in h-full' : 'hidden'}>
             <YouTubeView active={page === 'youtube'} />
           </div>
         )}
         {page !== 'movie' && page !== 'youtube' && (
-          <div key={page} className="anim-fade-in h-full">
+          <div key={`${page}-${reloads[page] ?? 0}`} className="anim-fade-in h-full">
             {page === 'notes' && <NotesView key="notes" mode="all" />}
             {page === 'structures' && <NotesView key="structures" mode="structures" />}
             {page === 'room' && <PracticeRoom />}

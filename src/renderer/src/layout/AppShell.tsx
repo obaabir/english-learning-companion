@@ -3,7 +3,8 @@ import { BookOpen, Clapperboard, Gamepad2, GraduationCap, Layers, ListChecks, Pu
 import { useApp, type Page } from '@renderer/stores/app'
 import { cn } from '@renderer/lib/cn'
 import { YouTubeIcon } from '@renderer/features/youtube/YouTubeIcon'
-import { Globe2 } from 'lucide-react'
+import { Globe2, RotateCw } from 'lucide-react'
+import { useState } from 'react'
 
 interface NavItem {
   page: Page
@@ -75,6 +76,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
         >
           En
         </div>
+        <ReloadButton />
         {MAIN.map((item) => (
           <NavButton key={item.page} item={item} active={page === item.page} />
         ))}
@@ -85,6 +87,25 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
       </nav>
       <main className="relative min-w-0 flex-1">{children}</main>
     </div>
+  )
+}
+
+/** Reloads only the section on screen (its data is fetched again); the movie and subtitles keep playing. */
+function ReloadButton(): ReactNode {
+  const [spin, setSpin] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        setSpin(true)
+        setTimeout(() => setSpin(false), 700)
+        window.dispatchEvent(new CustomEvent('elc:reload-section'))
+      }}
+      aria-label="Reload this section"
+      title="Reload this section"
+      className="motion-press relative z-10 mb-2 flex size-9 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-white/55 hover:text-fg lg:size-10"
+    >
+      <RotateCw className={spin ? 'size-[18px] animate-spin' : 'size-[18px]'} />
+    </button>
   )
 }
 
