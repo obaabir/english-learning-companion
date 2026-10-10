@@ -4,10 +4,19 @@ import type { GeminiService } from '../ai/gemini'
 import { getVideo, saveTranscriptProgress, upsertVideoInfo } from '../db/repos/youtube'
 import { canonicalUrl, estimateLevel, normalizeTranscriptChunk, parseYouTubeId } from './youtube'
 
-/** Long videos are transcribed in 5-minute parts, two at a time, so lines appear sooner. */
-export const CHUNK_SEC = 300
-const SINGLE_CALL_MAX_SEC = 6 * 60
-const PARALLEL = 2
+/** Videos are transcribed in 1-minute parts, four at a time, so the first lines appear within seconds. */
+export const CHUNK_SEC = 60
+const SINGLE_CALL_MAX_SEC = 75
+const PARALLEL = 4
+/** A part that hits "busy / too many requests" waits and is tried again (up to this many times). */
+const BUSY_TRIES = 4
+const BUSY_WAIT_MS = 8000
+
+/** Gemini busy, overloaded or rate limited (worth waiting and trying again). */
+export function isBusyOrLimited(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /busy|overloaded|rate limit|quota|too many|\b(429|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE/i.test(msg)
+}
 
 /** Sorted lines from several parts, without duplicates where parts overlap. */
 function mergeLines(parts: TranscriptLine[][]): TranscriptLine[] {
@@ -29,7 +38,8 @@ export class YouTubeService {
   constructor(
     private readonly db: Db,
     private readonly gemini: GeminiService,
-    private readonly onProgress: (p: TranscriptProgress) => void
+    private readonly onProgress: (p: TranscriptProgress) => void,
+    private readonly busyWaitMs = BUSY_WAIT_MS
   ) {}
 
   /** Checks a link and returns the video's details (YouTube's official oEmbed; free, no key). */
@@ -78,7 +88,12 @@ export class YouTubeService {
     const totalChunks = single ? 1 : Math.ceil(duration / CHUNK_SEC)
     const saved = video.chunksDone > 0 ? video.transcript : []
     const results = new Map<number, TranscriptLine[]>()
-    let next = video.chunksDone
+    /** Lines of parts Gemini is still writing (shown, not saved). */
+    const partial = new Map<number, TranscriptLine[]>()
+    const queue = Array.from({ length: totalChunks - video.chunksDone }, (_, k) => video.chunksDone + k)
+    const busyTries = new Map<number, number>()
+    let parallel = Math.min(PARALLEL, queue.length)
+    let active = 0
     let firstError: unknown = null
 
     const report = (): void => {
@@ -86,26 +101,50 @@ export class YouTubeService {
       let prefix = video.chunksDone
       while (results.has(prefix)) prefix++
       const savedLines = mergeLines([saved, ...[...results.entries()].filter(([i]) => i < prefix).map(([, l]) => l)])
-      const shown = mergeLines([saved, ...results.values()])
+      const shown = mergeLines([saved, ...results.values(), ...[...partial.entries()].filter(([i]) => !results.has(i)).map(([, l]) => l)])
       const complete = prefix === totalChunks
       saveTranscriptProgress(this.db, videoId, { transcript: savedLines, chunksDone: prefix, complete, durationSec: duration ?? null, level: estimateLevel(savedLines) })
       this.onProgress({ videoId, transcript: shown, chunksDone: results.size + video.chunksDone, totalChunks, complete })
     }
 
     const worker = async (): Promise<void> => {
-      while (!firstError && next < totalChunks) {
-        const i = next++
+      while (!firstError && queue.length) {
+        // Parts are taken in order; fewer run at once after Gemini said it is busy.
+        if (active >= parallel) {
+          await new Promise((r) => setTimeout(r, 250))
+          continue
+        }
+        const i = queue.shift()!
         const clip = single ? undefined : { startSec: i * CHUNK_SEC, endSec: Math.min(duration!, (i + 1) * CHUNK_SEC) }
+        const from = clip?.startSec ?? 0
+        const to = clip?.endSec ?? Number.MAX_SAFE_INTEGER
+        active++
         try {
-          const raw = await this.gemini.transcribeYouTube(video.url, clip)
-          results.set(i, normalizeTranscriptChunk(raw, clip?.startSec ?? 0, clip?.endSec ?? Number.MAX_SAFE_INTEGER))
+          const raw = await this.gemini.transcribeYouTube(video.url, clip, (lines) => {
+            partial.set(i, normalizeTranscriptChunk(lines, from, to))
+            report()
+          })
+          partial.delete(i)
+          results.set(i, normalizeTranscriptChunk(raw, from, to))
           report()
         } catch (err) {
-          firstError ??= err
+          partial.delete(i)
+          const tries = (busyTries.get(i) ?? 0) + 1
+          if (isBusyOrLimited(err) && tries < BUSY_TRIES) {
+            busyTries.set(i, tries)
+            parallel = Math.max(1, parallel - 1)
+            await new Promise((r) => setTimeout(r, this.busyWaitMs * tries))
+            queue.unshift(i)
+            queue.sort((a, b) => a - b)
+          } else {
+            firstError ??= err
+          }
+        } finally {
+          active--
         }
       }
     }
-    await Promise.all(Array.from({ length: Math.min(PARALLEL, totalChunks - video.chunksDone) }, worker))
+    await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, worker))
     if (firstError) throw firstError
     return getVideo(this.db, videoId)!
   }

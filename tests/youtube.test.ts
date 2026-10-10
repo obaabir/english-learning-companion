@@ -3,7 +3,7 @@ import { estimateLevel, normalizeTranscriptChunk, parseStartTime, parseYouTubeId
 import { CHUNK_SEC, YouTubeService } from '../src/main/youtube/YouTubeService'
 import { openDatabase } from '../src/main/db'
 import { getVideo, upsertVideoInfo } from '../src/main/db/repos/youtube'
-import { GeminiService, parseTranscriptJson } from '../src/main/ai/gemini'
+import { GeminiService, completeTranscriptObjects, parseTranscriptJson } from '../src/main/ai/gemini'
 
 describe('YouTube links', () => {
   it('reads the video id from every common link form', () => {
@@ -88,26 +88,56 @@ describe('Gemini transcript request fallback', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(svc as any).client = () => ({
       models: {
-        generateContent: async (req: { config: Record<string, unknown>; contents: { parts: { videoMetadata?: unknown }[] }[] }) => {
+        generateContentStream: async (req: { config: Record<string, unknown>; contents: { parts: { videoMetadata?: unknown }[] }[] }) => {
           const r = { lowRes: 'mediaResolution' in req.config, thinking: 'thinkingConfig' in req.config, clip: !!req.contents[0].parts[0].videoMetadata }
           sent.push(r)
           // Like the error in the screenshot: this model rejects the low-resolution setting.
           if (r.lowRes) throw new Error('ApiError: {"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}')
-          return { text: '[{"start": 2, "end": 4, "text": "Hello."}]' }
+          return (async function* () {
+            yield { text: '[{"start": 2, "end": 4, "text": "Hello."}]' }
+          })()
         }
       }
     })
     const lines = await svc.transcribeYouTube('https://www.youtube.com/watch?v=dQw4w9WgXcQ', { startSec: 0, endSec: 600 })
     expect(lines).toEqual([{ start: 2, end: 4, text: 'Hello.' }])
     expect(sent).toEqual([
-      { lowRes: true, thinking: true, clip: true },
-      { lowRes: true, thinking: false, clip: true },
-      { lowRes: false, thinking: false, clip: true }
+      { lowRes: true, thinking: true, clip: true }, // thinking off
+      { lowRes: true, thinking: true, clip: true }, // minimal thinking
+      { lowRes: true, thinking: false, clip: true }, // default thinking
+      { lowRes: false, thinking: true, clip: true } // minimal thinking, normal resolution: works
     ])
     // Next part goes straight to the working request.
     await svc.transcribeYouTube('https://www.youtube.com/watch?v=dQw4w9WgXcQ', { startSec: 600, endSec: 833 })
-    expect(sent).toHaveLength(4)
-    expect(sent[3]).toEqual({ lowRes: false, thinking: false, clip: true })
+    expect(sent).toHaveLength(5)
+    expect(sent[4]).toEqual({ lowRes: false, thinking: true, clip: true })
+  })
+
+  it('shows finished lines while Gemini is still writing (streaming)', async () => {
+    const svc = new GeminiService(
+      () => 'dummy',
+      () => 'gemini-test'
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(svc as any).client = () => ({
+      models: {
+        generateContentStream: async () =>
+          (async function* () {
+            yield { text: '[{"start": 1, "end": 2, "text": "Hi, '}
+            yield { text: 'there."}, {"start": 3, "end": 4, "te' }
+            yield { text: 'xt": "A {brace} \\"quote\\""}]' }
+          })()
+      }
+    })
+    const partials: number[] = []
+    const lines = await svc.transcribeYouTube('https://www.youtube.com/watch?v=dQw4w9WgXcQ', undefined, (l) => partials.push(l.length))
+    expect(partials).toEqual([1, 2])
+    expect(lines.map((l) => l.text)).toEqual(['Hi, there.', 'A {brace} "quote"'])
+  })
+
+  it('finds complete lines in an unfinished reply', () => {
+    expect(completeTranscriptObjects('[{"start":1,"end":2,"text":"One"},{"start":3,"te')).toEqual([{ start: 1, end: 2, text: 'One' }])
+    expect(completeTranscriptObjects('')).toEqual([])
   })
 
   it('reads the transcript even when it comes inside a code block', () => {
@@ -117,7 +147,7 @@ describe('Gemini transcript request fallback', () => {
 })
 
 describe('YouTubeService transcripts (Gemini stand-in)', () => {
-  const setup = (fail?: { onCall: number }) => {
+  const setup = (fail?: { onCall: number; message?: string }) => {
     const db = openDatabase(':memory:')
     upsertVideoInfo(db, { videoId: 'dQw4w9WgXcQ', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'Test', channel: 'Ch', thumbnailUrl: null })
     const calls: ({ startSec: number; endSec: number } | undefined)[] = []
@@ -125,7 +155,7 @@ describe('YouTubeService transcripts (Gemini stand-in)', () => {
       configured: true,
       transcribeYouTube: async (_url: string, clip?: { startSec: number; endSec: number }) => {
         calls.push(clip)
-        if (fail && calls.length === fail.onCall) throw new Error('Gemini is very busy right now')
+        if (fail && calls.length === fail.onCall) throw new Error(fail.message ?? 'Network error')
         const base = clip?.startSec ?? 0
         return [
           { start: base + 2, end: base + 4, text: `Line at ${base + 2}` },
@@ -134,26 +164,26 @@ describe('YouTubeService transcripts (Gemini stand-in)', () => {
       }
     } as unknown as GeminiService
     const progress: number[] = []
-    const service = new YouTubeService(db, gemini, (p) => progress.push(p.chunksDone))
+    const service = new YouTubeService(db, gemini, (p) => progress.push(p.chunksDone), 10)
     return { db, service, calls, progress }
   }
 
   it('transcribes a short video in one call and caches it', async () => {
     const { db, service, calls } = setup()
-    const v = await service.transcribe('dQw4w9WgXcQ', 300)
+    const v = await service.transcribe('dQw4w9WgXcQ', 60)
     expect(calls).toEqual([undefined])
     expect(v.transcriptComplete).toBe(true)
     expect(v.transcriptSource).toBe('ai')
     expect(v.transcript.map((l) => l.text)).toEqual(['Line at 2', 'Line at 30'])
-    await service.transcribe('dQw4w9WgXcQ', 300) // cached: no new Gemini call
+    await service.transcribe('dQw4w9WgXcQ', 60) // cached: no new Gemini call
     expect(calls).toHaveLength(1)
-    expect(getVideo(db, 'dQw4w9WgXcQ')?.durationSec).toBe(300)
+    expect(getVideo(db, 'dQw4w9WgXcQ')?.durationSec).toBe(60)
   })
 
-  it('splits long videos into parts (two at a time), and resumes after a failure without duplicates', async () => {
+  it('splits videos into 1-minute parts (four at a time), and resumes after a failure without duplicates', async () => {
     const { db, service, calls } = setup({ onCall: 2 }) // the 2nd request (part 2) fails
     const duration = 3 * CHUNK_SEC - 30 // 3 parts
-    await expect(service.transcribe('dQw4w9WgXcQ', duration)).rejects.toThrow(/busy/)
+    await expect(service.transcribe('dQw4w9WgXcQ', duration)).rejects.toThrow(/Network/)
     // Part 1 finished and is saved; part 2 failed, so the saved progress stops after part 1.
     expect(getVideo(db, 'dQw4w9WgXcQ')?.chunksDone).toBe(1)
     const v = await service.transcribe('dQw4w9WgXcQ', duration) // resumes from part 2
@@ -173,7 +203,33 @@ describe('YouTubeService transcripts (Gemini stand-in)', () => {
 
   it('shares one run when asked twice at once', async () => {
     const { service, calls } = setup()
-    await Promise.all([service.transcribe('dQw4w9WgXcQ', 300), service.transcribe('dQw4w9WgXcQ', 300)])
+    await Promise.all([service.transcribe('dQw4w9WgXcQ', 60), service.transcribe('dQw4w9WgXcQ', 60)])
     expect(calls).toHaveLength(1)
+  })
+
+  it('a part that hits "busy" waits and is tried again instead of stopping', async () => {
+    const { service, calls } = setup({ onCall: 2, message: 'Gemini rate limit or quota reached. Wait a moment and try again.' })
+    const v = await service.transcribe('dQw4w9WgXcQ', 3 * CHUNK_SEC)
+    expect(v.transcriptComplete).toBe(true)
+    expect(calls.map((c) => c?.startSec)).toEqual([0, CHUNK_SEC, 2 * CHUNK_SEC, CHUNK_SEC])
+    expect(v.transcript).toHaveLength(6)
+  })
+
+  it('a 3:51 video is made in 4 parts that run at the same time', async () => {
+    const { service, calls } = setup()
+    let inFlight = 0
+    let peak = 0
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = (service as any).gemini
+    const orig = g.transcribeYouTube
+    g.transcribeYouTube = async (...a: unknown[]) => {
+      peak = Math.max(peak, ++inFlight)
+      await new Promise((r) => setTimeout(r, 20))
+      inFlight--
+      return orig(...a)
+    }
+    await service.transcribe('dQw4w9WgXcQ', 231)
+    expect(calls).toHaveLength(4)
+    expect(peak).toBe(4)
   })
 })

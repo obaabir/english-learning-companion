@@ -89,14 +89,55 @@ export function isThinkingConfigError(err: unknown): boolean {
   return /thinking|budget/i.test(msg) && /invalid|not supported|unsupported|only works|INVALID_ARGUMENT|\b400\b/i.test(msg)
 }
 
-/** Transcript request variants, from fastest/most precise to most basic. */
-export const TRANSCRIPT_VARIANTS = [
-  { noThinking: true, lowRes: true, clip: true, schema: true },
-  { noThinking: false, lowRes: true, clip: true, schema: true },
-  { noThinking: false, lowRes: false, clip: true, schema: true },
-  { noThinking: false, lowRes: false, clip: false, schema: true },
-  { noThinking: false, lowRes: false, clip: false, schema: false }
+/**
+ * Transcript request variants, from fastest/most precise to most basic. Thinking is not needed to
+ * write down speech, so "off" and then "minimal" are tried before the model's (slow) default.
+ */
+export const TRANSCRIPT_VARIANTS: { thinking: 'off' | 'minimal' | 'default'; lowRes: boolean; clip: boolean; schema: boolean }[] = [
+  { thinking: 'off', lowRes: true, clip: true, schema: true },
+  { thinking: 'minimal', lowRes: true, clip: true, schema: true },
+  { thinking: 'default', lowRes: true, clip: true, schema: true },
+  { thinking: 'minimal', lowRes: false, clip: true, schema: true },
+  { thinking: 'default', lowRes: false, clip: true, schema: true },
+  { thinking: 'default', lowRes: false, clip: false, schema: true },
+  { thinking: 'default', lowRes: false, clip: false, schema: false }
 ]
+
+const TRANSCRIPT_THINKING: Record<'off' | 'minimal', ThinkingConfig> = { off: { thinkingBudget: 0 }, minimal: { thinkingLevel: ThinkingLevel.MINIMAL } }
+
+/** The finished {start, end, text} objects in a transcript reply that is still being written. */
+export function completeTranscriptObjects(text: string): { start: number; end?: number; text: string }[] {
+  const out: { start: number; end?: number; text: string }[] = []
+  let depth = 0
+  let inStr = false
+  let esc = false
+  let start = -1
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') inStr = true
+    else if (c === '{') {
+      if (depth === 0) start = i
+      depth++
+    } else if (c === '}' && depth > 0) {
+      depth--
+      if (depth === 0 && start >= 0) {
+        try {
+          out.push(JSON.parse(text.slice(start, i + 1)))
+        } catch {
+          // not a complete line yet
+        }
+        start = -1
+      }
+    }
+  }
+  return out
+}
 
 export function isInvalidArgument(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -271,7 +312,11 @@ export class GeminiService {
    * If Gemini rejects the request as an "invalid argument", simpler variants are tried in turn
    * and the one that works is remembered.
    */
-  async transcribeYouTube(url: string, clip?: { startSec: number; endSec: number }): Promise<{ start: number; end?: number; text: string }[]> {
+  async transcribeYouTube(
+    url: string,
+    clip?: { startSec: number; endSec: number },
+    onPartial?: (lines: { start: number; end?: number; text: string }[]) => void
+  ): Promise<{ start: number; end?: number; text: string }[]> {
     const fmt = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
     return this.resilient(async (model) => {
       for (let i = this.transcriptVariant.get(model) ?? 0; ; i++) {
@@ -283,7 +328,8 @@ export class GeminiService {
             ? `Transcribe only the speech between ${fmt(clip.startSec)} and ${fmt(clip.endSec)} of this video. Times must be seconds from the beginning of the video.`
             : 'Transcribe all speech in this video.'
         try {
-          const res = await this.client().models.generateContent({
+          // Streamed, so finished lines can be shown while Gemini is still writing the rest.
+          const stream = await this.client().models.generateContentStream({
             model,
             contents: [
               {
@@ -302,11 +348,26 @@ export class GeminiService {
               ...(v.schema ? { responseMimeType: 'application/json', responseSchema: TRANSCRIPT_SCHEMA } : {}),
               // Only the speech matters: low video detail keeps it fast and within free limits.
               ...(v.lowRes ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW } : {}),
-              ...(v.noThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+              ...(v.thinking !== 'default' ? { thinkingConfig: TRANSCRIPT_THINKING[v.thinking] } : {})
             }
           })
+          let full = ''
+          let shown = 0
+          for await (const chunk of stream) {
+            full += chunk.text ?? ''
+            if (!onPartial) continue
+            const done = completeTranscriptObjects(full)
+            if (done.length > shown) {
+              shown = done.length
+              onPartial(done)
+            }
+          }
           this.transcriptVariant.set(model, i)
-          return parseTranscriptJson(res.text)
+          try {
+            return parseTranscriptJson(full)
+          } catch {
+            return completeTranscriptObjects(full)
+          }
         } catch (err) {
           if (i < TRANSCRIPT_VARIANTS.length - 1 && isInvalidArgument(err)) continue
           throw err

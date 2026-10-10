@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import { AlertTriangle, Clock, Link2, Loader2, Play, RotateCcw, Sparkles } from 'lucide-react'
+import { AlertTriangle, Check, Clock, Copy, Link2, Loader2, Play, RotateCcw, Sparkles } from 'lucide-react'
 import { formatTimestamp, type SubtitleLine, type TranscriptLine, type YouTubeVideo } from '@shared/types'
 import { errorMessage, invoke, on } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
@@ -338,6 +338,7 @@ function VideoArea(props: {
             <Sparkles className="size-3" /> AI transcript — may contain errors
           </Badge>
           {video.level && <Badge tone="accent">Level: {video.level}</Badge>}
+          <CopyTranscript lines={lines} />
         </div>
       </div>
 
@@ -419,5 +420,28 @@ function RecentList({ recent, onOpen }: { recent: YouTubeVideo[]; onOpen: (v: Yo
         ))}
       </div>
     </div>
+  )
+}
+
+/** Copies the whole transcript (what has been made so far) as plain text, one line each. */
+function CopyTranscript({ lines }: { lines: SubtitleLine[] }): ReactNode {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1800)
+    return () => clearTimeout(t)
+  }, [copied])
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(lines.map((l) => l.text).join('\n'))
+      setCopied(true)
+    } catch (err) {
+      useApp.getState().toastError(err)
+    }
+  }
+  return (
+    <Button size="sm" className="h-6 px-2 text-[11px]" icon={copied ? <Check className="size-3" /> : <Copy className="size-3" />} onClick={() => void copy()} disabled={!lines.length} title="Copy the whole transcript">
+      {copied ? 'Copied' : 'Copy'}
+    </Button>
   )
 }

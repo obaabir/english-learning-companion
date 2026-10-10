@@ -10,6 +10,8 @@ export interface FspCard {
   example: string
   /** Example written by AI (the doc had none). */
   aiExample?: boolean
+  /** 'saved' = from the words you saved in Movie/YouTube (your flashcards); otherwise pasted from the Doc. */
+  source?: 'saved' | 'doc'
 }
 
 export interface FspCardState {
@@ -81,6 +83,40 @@ export function mergeCards(old: FspCard[], incoming: FspCard[]): { cards: FspCar
     map.set(c.id, prev && !c.example && prev.example ? { ...c, example: prev.example, aiExample: prev.aiExample } : c)
   }
   return { cards: [...map.values()], added, updated }
+}
+
+/* ---------------------- Your saved words ------------------------ */
+
+/** Your flashcards (made from words saved in Movie Mode / YouTube) as practice cards. */
+export function cardsFromSaved(list: { front: string; back: { meaning_bn?: string; meaning_en?: string; example?: string; note?: string } }[]): FspCard[] {
+  const out = new Map<string, FspCard>()
+  for (const fc of list) {
+    const term = fc.front.trim()
+    if (!term) continue
+    const id = term.toLowerCase()
+    const words = term.replace(/^to\s+/i, '').split(/\s+/).length
+    const idiom = /idiom/i.test(`${fc.back.note ?? ''} ${fc.back.meaning_en ?? ''}`)
+    out.set(id, {
+      id,
+      term,
+      type: idiom ? 'idiom' : words === 1 ? 'word' : 'phrase',
+      meaningBn: fc.back.meaning_bn ?? '',
+      example: (fc.back.example ?? '').trim(),
+      source: 'saved'
+    })
+  }
+  return [...out.values()]
+}
+
+/** Replaces the saved-word cards with the current list; pasted Doc cards stay. Progress is keyed by term, so it is kept. */
+export function syncSaved(old: FspCard[], saved: FspCard[]): FspCard[] {
+  const prev = new Map(old.map((c) => [c.id, c]))
+  const ids = new Set(saved.map((c) => c.id))
+  const merged = saved.map((c) => {
+    const p = prev.get(c.id)
+    return !c.example && p?.example ? { ...c, example: p.example, aiExample: p.aiExample } : c
+  })
+  return [...merged, ...old.filter((c) => c.source !== 'saved' && !ids.has(c.id))]
 }
 
 /* ------------------------- Words and forms ------------------------- */
