@@ -1,0 +1,152 @@
+/* Flash Sentence Practice: every class starts with "fsp-". Motion is transform/opacity only. */
+
+.fsp-root {
+  container-type: inline-size;
+  container-name: fsp;
+}
+
+/* Layout: one column (narrow) or practice + feedback side by side (wide). */
+.fsp-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+@container fsp (min-width: 900px) {
+  .fsp-layout {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    max-width: 1060px;
+  }
+}
+
+/* ---- 3D card flip ---- */
+.fsp-card {
+  perspective: 1200px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.fsp-card-inner {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 260ms var(--ease);
+  will-change: transform;
+}
+.fsp-card-inner.fsp-flipped {
+  transform: rotateY(180deg);
+}
+.fsp-face {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--hairline);
+  border-radius: 18px;
+  box-shadow: var(--shadow-elevated);
+  padding: 28px 24px;
+  min-height: 210px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+.fsp-back {
+  transform: rotateY(180deg);
+  justify-content: flex-start;
+  text-align: left;
+  align-items: stretch;
+}
+
+/* ---- Feedback: right panel (wide) / bottom sheet (narrow) ---- */
+.fsp-feedback {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  max-height: 70%;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.97);
+  border-top: 1px solid var(--hairline);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -12px 40px rgba(55, 35, 45, 0.14);
+  padding: 16px 18px 20px;
+  transform: translate3d(0, 100%, 0);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 260ms var(--ease),
+    opacity 200ms var(--ease);
+}
+.fsp-feedback.fsp-open {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.fsp-sheet-handle {
+  display: block;
+  width: 40px;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--hairline);
+  margin: -4px auto 10px;
+}
+@container fsp (min-width: 900px) {
+  .fsp-feedback {
+    position: relative;
+    max-height: none;
+    align-self: start;
+    border: 1px solid var(--hairline);
+    border-radius: 18px;
+    box-shadow: var(--shadow-elevated);
+    transform: translate3d(12px, 0, 0);
+  }
+  .fsp-feedback.fsp-open {
+    transform: translate3d(0, 0, 0);
+  }
+  .fsp-feedback.fsp-idle {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+  .fsp-sheet-handle {
+    display: none;
+  }
+}
+
+.fsp-wrong {
+  background: rgba(219, 68, 55, 0.14);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 0 2px;
+  text-decoration: underline wavy rgba(179, 38, 30, 0.6);
+  text-underline-offset: 3px;
+}
+
+.fsp-fade {
+  animation: fsp-fade 200ms var(--ease) both;
+}
+@keyframes fsp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fsp-tab[aria-selected='true'] {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fsp-card-inner,
+  .fsp-feedback {
+    transition: none;
+  }
+  .fsp-fade {
+    animation: none;
+  }
+}

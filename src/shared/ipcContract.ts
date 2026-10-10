@@ -27,6 +27,7 @@ import type {
   StudyContext,
   SubtitleLine
 } from './types'
+import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from './fsp'
 
 /**
  * Every renderer → main call. Keys are IPC channel names; the preload exposes a
@@ -139,6 +140,11 @@ export interface Api {
   'youtube:savePosition': (args: { videoId: string; seconds: number }) => Promise<void>
   'google:setMovieDoc': (args: { mediaPath: string; mediaTitle: string; doc: GoogleDocInfo }) => Promise<MovieNotesInfo['doc']>
   'google:createMovieDoc': (args: { mediaPath: string; mediaTitle: string; title: string }) => Promise<MovieNotesInfo['doc']>
+
+  /** Flash Sentence Practice (Flashcards section). */
+  'fsp:check': (input: FspCheckInput) => Promise<FspCheckResult>
+  'fsp:example': (args: { term: string; type: FspCardType; meaningBn: string }) => Promise<string>
+  'fsp:lesson': (args: { type: FspErrorType; label: string; samples: { wrong: string; fix: string }[] }) => Promise<FspLesson>
 }
 
 /** Main → renderer push events. */

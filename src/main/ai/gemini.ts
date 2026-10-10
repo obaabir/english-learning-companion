@@ -12,6 +12,8 @@ import {
   YOUR_TURN_INSTRUCTION,
   YOUR_TURN_SCHEMA
 } from './schemas'
+import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from '@shared/fsp'
+import { FSP_CHECK_INSTRUCTION, FSP_CHECK_SCHEMA, FSP_EXAMPLE_INSTRUCTION, FSP_EXAMPLE_SCHEMA, FSP_LESSON_INSTRUCTION, FSP_LESSON_SCHEMA } from './fspSchemas'
 
 export const DEFAULT_MODEL = 'gemini-flash-latest'
 
@@ -360,6 +362,32 @@ export class GeminiService {
       const res = await this.withFastThinking(model, call)
       return (res.text ?? '').trim()
     })
+  }
+
+  /** Flash Sentence Practice: focused grammar check of the learner's own sentence. */
+  fspCheck(input: FspCheckInput): Promise<FspCheckResult> {
+    const parts = [
+      `Target (${input.type}): "${input.term}"`,
+      input.meaningBn ? `Meaning (Bangla): ${input.meaningBn}` : '',
+      `Challenge: ${input.challenge}`,
+      input.context ? `Topic nudge (optional for the learner): ${input.context}` : '',
+      `Learner sentence: "${input.sentence}"`
+    ]
+    return this.json<FspCheckResult>(FSP_CHECK_INSTRUCTION, parts.filter(Boolean).join('\n'), FSP_CHECK_SCHEMA, true)
+  }
+
+  /** Flash Sentence Practice: an example sentence for a card that has none. */
+  async fspExample(args: { term: string; type: FspCardType; meaningBn: string }): Promise<string> {
+    const prompt = `${args.type}: "${args.term}"${args.meaningBn ? `\nMeaning (Bangla): ${args.meaningBn}` : ''}`
+    const r = await this.json<{ example?: string }>(FSP_EXAMPLE_INSTRUCTION, prompt, FSP_EXAMPLE_SCHEMA, true)
+    return (r?.example ?? '').trim()
+  }
+
+  /** Flash Sentence Practice: 1-minute Bangla mini-lesson + 3 fix-it items for a frequent mistake. */
+  fspLesson(args: { type: FspErrorType; label: string; samples: { wrong: string; fix: string }[] }): Promise<FspLesson> {
+    const parts = [`Mistake type: ${args.label} (${args.type})`]
+    if (args.samples.length) parts.push(`The learner's own mistakes:\n${args.samples.map((x) => `- "${x.wrong}" -> "${x.fix}"`).join('\n')}`)
+    return this.json<FspLesson>(FSP_LESSON_INSTRUCTION, parts.join('\n\n'), FSP_LESSON_SCHEMA, true)
   }
 
   async listModels(): Promise<string[]> {

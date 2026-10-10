@@ -5,6 +5,7 @@ import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Badge, Button, EmptyState, PanelHeader } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
+import { FlashSentencePractice } from './fsp/FlashSentencePractice'
 
 const RATINGS: { rating: ReviewRating; label: string; key: string; className: string }[] = [
   { rating: 1, label: 'Again', key: '1', className: 'text-danger' },
@@ -13,7 +14,7 @@ const RATINGS: { rating: ReviewRating; label: string; key: string; className: st
   { rating: 4, label: 'Easy', key: '4', className: 'text-info' }
 ]
 
-export function FlashcardsView(): ReactNode {
+function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
   const { toast, toastError, refreshDue } = useApp.getState()
   const [stats, setStats] = useState<FlashcardStats | null>(null)
   const [queue, setQueue] = useState<Flashcard[]>([])
@@ -97,6 +98,7 @@ export function FlashcardsView(): ReactNode {
   return (
     <div className="glass-panel flex h-full flex-col overflow-hidden">
       <PanelHeader title="Flashcards" icon={<Layers className="size-4" />}>
+        {modeSwitch}
         {stats && (
           <>
             <Badge tone="accent">{stats.due} due</Badge>
@@ -232,4 +234,25 @@ function BrowseList({ cards, onDeleted }: { cards: Flashcard[]; onDeleted: () =>
       </div>
     </div>
   )
+}
+
+/** Flashcards section: the card review (unchanged) or Flash Sentence Practice. */
+export function FlashcardsView(): ReactNode {
+  const [mode, setMode] = useState<'review' | 'sentence'>('review')
+  const modeSwitch = (
+    <div className="flex rounded-[10px] border border-line/80 bg-white/50 p-0.5" role="tablist" aria-label="Flashcard mode">
+      {(['review', 'sentence'] as const).map((m) => (
+        <button
+          key={m}
+          role="tab"
+          aria-selected={mode === m}
+          onClick={() => setMode(m)}
+          className={cn('motion-press h-6 rounded-[8px] px-2.5 text-xs font-medium', mode === m ? 'bg-accent text-accent-fg' : 'text-muted hover:text-fg')}
+        >
+          {m === 'review' ? 'Review' : 'Sentence Practice'}
+        </button>
+      ))}
+    </div>
+  )
+  return mode === 'review' ? <FlashcardReview modeSwitch={modeSwitch} /> : <FlashSentencePractice modeSwitch={modeSwitch} />
 }

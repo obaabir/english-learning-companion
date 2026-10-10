@@ -187,6 +187,9 @@ export function registerIpc(s: Services): void {
   handle('room:setDailyCap', (cap) => setDailyCap(db, cap))
   handle('room:remix', ({ date, refresh }) => room.remix(date, refresh))
   handle('room:yourTurn', ({ sentence, phrases }) => gemini.yourTurn(sentence, phrases))
+  handle('fsp:check', (input) => gemini.fspCheck(input))
+  handle('fsp:example', (args) => gemini.fspExample(args))
+  handle('fsp:lesson', (args) => gemini.fspLesson(args))
   handle('player:togglePause', () => player().togglePause())
   handle('player:seekTo', ({ mediaPath, seconds }) => {
     if (mediaPath && /^https?:\/\//i.test(mediaPath)) throw new Error('Open this video from the YouTube page.')
