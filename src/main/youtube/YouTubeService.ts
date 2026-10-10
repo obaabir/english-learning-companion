@@ -87,10 +87,13 @@ export class YouTubeService {
     const single = !duration || duration <= SINGLE_CALL_MAX_SEC
     const totalChunks = single ? 1 : Math.ceil(duration / CHUNK_SEC)
     const saved = video.chunksDone > 0 ? video.transcript : []
+    // Resume after the last saved line (also right for progress saved with the older 5-minute parts).
+    const lastEnd = saved.reduce((m, l) => Math.max(m, l.end), 0)
+    const doneParts = single ? (video.chunksDone > 0 ? 1 : 0) : saved.length ? Math.min(totalChunks, Math.ceil(lastEnd / CHUNK_SEC)) : 0
     const results = new Map<number, TranscriptLine[]>()
     /** Lines of parts Gemini is still writing (shown, not saved). */
     const partial = new Map<number, TranscriptLine[]>()
-    const queue = Array.from({ length: totalChunks - video.chunksDone }, (_, k) => video.chunksDone + k)
+    const queue = Array.from({ length: totalChunks - doneParts }, (_, k) => doneParts + k)
     const busyTries = new Map<number, number>()
     let parallel = Math.min(PARALLEL, queue.length)
     let active = 0
@@ -98,13 +101,13 @@ export class YouTubeService {
 
     const report = (): void => {
       // Saved progress = the unbroken run of finished parts from the start (so a resume never duplicates).
-      let prefix = video.chunksDone
+      let prefix = doneParts
       while (results.has(prefix)) prefix++
       const savedLines = mergeLines([saved, ...[...results.entries()].filter(([i]) => i < prefix).map(([, l]) => l)])
       const shown = mergeLines([saved, ...results.values(), ...[...partial.entries()].filter(([i]) => !results.has(i)).map(([, l]) => l)])
       const complete = prefix === totalChunks
       saveTranscriptProgress(this.db, videoId, { transcript: savedLines, chunksDone: prefix, complete, durationSec: duration ?? null, level: estimateLevel(savedLines) })
-      this.onProgress({ videoId, transcript: shown, chunksDone: results.size + video.chunksDone, totalChunks, complete })
+      this.onProgress({ videoId, transcript: shown, chunksDone: results.size + doneParts, totalChunks, complete })
     }
 
     const worker = async (): Promise<void> => {
@@ -144,6 +147,7 @@ export class YouTubeService {
         }
       }
     }
+    if (!queue.length) report() // saved lines already reach the end
     await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, worker))
     if (firstError) throw firstError
     return getVideo(this.db, videoId)!

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { estimateLevel, normalizeTranscriptChunk, parseStartTime, parseYouTubeId } from '../src/main/youtube/youtube'
 import { CHUNK_SEC, YouTubeService } from '../src/main/youtube/YouTubeService'
 import { openDatabase } from '../src/main/db'
-import { getVideo, upsertVideoInfo } from '../src/main/db/repos/youtube'
+import { getVideo, saveTranscriptProgress, upsertVideoInfo } from '../src/main/db/repos/youtube'
 import { GeminiService, completeTranscriptObjects, parseTranscriptJson } from '../src/main/ai/gemini'
 
 describe('YouTube links', () => {
@@ -205,6 +205,16 @@ describe('YouTubeService transcripts (Gemini stand-in)', () => {
     const { service, calls } = setup()
     await Promise.all([service.transcribe('dQw4w9WgXcQ', 60), service.transcribe('dQw4w9WgXcQ', 60)])
     expect(calls).toHaveLength(1)
+  })
+
+  it('resumes progress saved with the old 5-minute parts at the right place', async () => {
+    const { db, service, calls } = setup()
+    const old = [{ start: 10, end: 12, text: 'Old line 1' }, { start: 290, end: 298, text: 'Old line 2' }]
+    saveTranscriptProgress(db, 'dQw4w9WgXcQ', { transcript: old, chunksDone: 1, complete: false, durationSec: 420, level: null })
+    const v = await service.transcribe('dQw4w9WgXcQ', 420)
+    expect(calls.map((c) => c?.startSec)).toEqual([300, 360])
+    expect(v.transcriptComplete).toBe(true)
+    expect(v.transcript.map((l) => l.text).slice(0, 2)).toEqual(['Old line 1', 'Old line 2'])
   })
 
   it('a part that hits "busy" waits and is tried again instead of stopping', async () => {
