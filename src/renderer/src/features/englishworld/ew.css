@@ -1,0 +1,211 @@
+/* English World: every class starts with "ew-". Motion: transform/opacity only (150–300 ms). */
+
+.ew-root {
+  container-type: inline-size;
+  container-name: ew;
+}
+
+.ew-col {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.ew-card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgba(55, 35, 45, 0.06);
+}
+
+/* Big tap targets (mobile-first). */
+.ew-tap {
+  min-height: 40px;
+  min-width: 40px;
+}
+
+.ew-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--blush);
+  line-height: 1;
+}
+
+/* Stories row */
+.ew-stories {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 2px 6px;
+}
+.ew-story {
+  flex: 0 0 auto;
+  width: 112px;
+  height: 160px;
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+  color: #fff;
+  text-align: left;
+  box-shadow: 0 4px 14px rgba(55, 35, 45, 0.12);
+}
+.ew-story-text {
+  position: absolute;
+  inset: auto 8px 8px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* Tabs */
+.ew-tab[aria-selected='true'] {
+  color: var(--accent);
+}
+
+/* Skeleton loaders (opacity pulse only) */
+.ew-skel {
+  background: rgba(120, 27, 54, 0.07);
+  border-radius: 10px;
+  animation: ew-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ew-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Correction difference */
+.ew-del {
+  color: var(--danger);
+  background: rgba(219, 68, 55, 0.1);
+  text-decoration: line-through;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.ew-add {
+  color: #1f7a3a;
+  background: rgba(31, 122, 58, 0.12);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+/* Sheets and dialogs: slide up / fade (transform + opacity) */
+.ew-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(36, 35, 42, 0.32);
+  animation: ew-fade 180ms var(--ease) both;
+}
+.ew-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  max-height: 92%;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -12px 40px rgba(55, 35, 45, 0.18);
+  padding: 16px 18px 22px;
+  animation: ew-up 260ms var(--ease) both;
+}
+@container ew (min-width: 720px) {
+  .ew-sheet {
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    top: 6%;
+    width: min(620px, 92%);
+    max-height: 88%;
+    border-radius: 20px;
+    transform: translateX(-50%);
+    animation: ew-pop 220ms var(--ease) both;
+  }
+}
+@keyframes ew-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes ew-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+@keyframes ew-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.ew-fade {
+  animation: ew-fade 200ms var(--ease) both;
+}
+
+.ew-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  min-width: 210px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  box-shadow: var(--shadow-elevated);
+  padding: 6px;
+  animation: ew-fade 150ms var(--ease) both;
+}
+.ew-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+  text-align: left;
+}
+.ew-menu button:hover {
+  background: var(--surface-2);
+}
+
+.ew-react[aria-pressed='true'] {
+  background: var(--blush);
+  border-color: rgba(184, 108, 129, 0.45);
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ew-skel,
+  .ew-backdrop,
+  .ew-sheet,
+  .ew-fade,
+  .ew-menu {
+    animation: none;
+  }
+}

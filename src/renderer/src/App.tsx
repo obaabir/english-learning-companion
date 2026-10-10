@@ -11,6 +11,7 @@ import { SettingsView } from '@renderer/features/settings/SettingsView'
 import { ComingSoon } from '@renderer/features/ComingSoon'
 import { YouTubeView } from '@renderer/features/youtube/YouTubeView'
 import { PracticeRoom } from '@renderer/features/room/PracticeRoom'
+import { EnglishWorld } from '@renderer/features/englishworld/EnglishWorld'
 import { Toasts } from '@renderer/components/Toasts'
 import { SelectionSaveMenu } from '@renderer/components/SelectionSaveMenu'
 
@@ -66,6 +67,7 @@ export function App(): ReactNode {
             {page === 'notes' && <NotesView key="notes" mode="all" />}
             {page === 'structures' && <NotesView key="structures" mode="structures" />}
             {page === 'room' && <PracticeRoom />}
+            {page === 'world' && <EnglishWorld />}
             {page === 'flashcards' && <FlashcardsView />}
             {page === 'prompts' && <PromptManager />}
             {page === 'settings' && <SettingsView />}

@@ -28,6 +28,7 @@ import type {
   SubtitleLine
 } from './types'
 import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from './fsp'
+import type { EwRequest } from './ew'
 
 /**
  * Every renderer → main call. Keys are IPC channel names; the preload exposes a
@@ -145,6 +146,9 @@ export interface Api {
   'fsp:check': (input: FspCheckInput) => Promise<FspCheckResult>
   'fsp:example': (args: { term: string; type: FspCardType; meaningBn: string }) => Promise<string>
   'fsp:lesson': (args: { type: FspErrorType; label: string; samples: { wrong: string; fix: string }[] }) => Promise<FspLesson>
+
+  /** English World (community): one channel; see EwMethods in shared/ew.ts. */
+  'ew:call': (req: EwRequest) => Promise<unknown>
 }
 
 /** Main → renderer push events. */

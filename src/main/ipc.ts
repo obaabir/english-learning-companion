@@ -1,4 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app } from 'electron'
+import { EwService } from './ew/EwService'
 import type { Content } from '@google/genai'
 import type { Api, ApiChannel, EventChannel, Events } from '@shared/ipcContract'
 import type { AppSettings, DocCategory, Note, PlayerKind } from '@shared/types'
@@ -190,6 +192,8 @@ export function registerIpc(s: Services): void {
   handle('fsp:check', (input) => gemini.fspCheck(input))
   handle('fsp:example', (args) => gemini.fspExample(args))
   handle('fsp:lesson', (args) => gemini.fspLesson(args))
+  const ew = new EwService(app.getPath('userData'))
+  handle('ew:call', (req) => ew.call(req))
   handle('player:togglePause', () => player().togglePause())
   handle('player:seekTo', ({ mediaPath, seconds }) => {
     if (mediaPath && /^https?:\/\//i.test(mediaPath)) throw new Error('Open this video from the YouTube page.')
