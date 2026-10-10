@@ -52,8 +52,13 @@ export function YouTubeView({ active }: { active: boolean }): ReactNode {
     }),
     []
   )
-  const practice = usePracticeActions(practicePlayer)
+  const canPlayYouTubeLine = useCallback(
+    (line: SubtitleLine) => line.start != null && !!playerRef.current && useYouTube.getState().video?.url === line.mediaPath,
+    []
+  )
+  const practice = usePracticeActions(practicePlayer, 'youtube', canPlayYouTubeLine)
   const speakLine = usePractice((s) => s.speakLine)
+  const speakHost = usePractice((s) => s.speakHost)
 
   useEffect(() => {
     const el = rootRef.current
@@ -219,7 +224,7 @@ export function YouTubeView({ active }: { active: boolean }): ReactNode {
               <ExplainPanel />
             </Panel>
           </Group>
-          {speakLine && /^https?:\/\//i.test(speakLine.mediaPath) && <SpeakPanel key={speakLine.id} line={speakLine} />}
+          {speakLine && speakHost === 'youtube' && <SpeakPanel key={speakLine.id} line={speakLine} />}
         </div>
         </PracticeContext.Provider>
       </StudyActionsContext.Provider>

@@ -1,458 +1,317 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, Headphones, Loader2, Lightbulb, Mic, MicOff, Play, RotateCcw, Square, Volume2, X } from 'lucide-react'
-import { formatTimestamp, type PracticeRating, type PracticeStats, type PronounceResult, type SubtitleLine } from '@shared/types'
+import { Check, CircleHelp, Loader2, Mic, Minus, Play, Plus, SkipForward, Square, Undo2, X } from 'lucide-react'
+import type { PronounceResult, SubtitleLine } from '@shared/types'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
+import { useStudyStore } from '@renderer/stores/movie'
 import { Button } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
-import { CountPicker } from './PracticeControls'
-import { PracticeContext, playSegment, recordFor, usePractice } from './practiceCore'
-import { matchHeard } from './practiceLogic'
+import { PracticeContext, playAiVoice, playSegment, recordFor, usePractice } from './practiceCore'
+import { ladder, matchHeard, type LadderStage } from './practiceLogic'
 import { recordingToWavBase64 } from './audio'
 
-
-type SpeechRecognitionCtor = new () => {
-  lang: string
-  interimResults: boolean
-  continuous: boolean
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null
-  onerror: ((e: { error: string }) => void) | null
-  onend: (() => void) | null
-  start(): void
-  stop(): void
-  abort(): void
+const STAGE_COLOR: Record<LadderStage, string> = {
+  listen: 'bg-[#b86c81]',
+  mumble: 'bg-[#c98a9b]',
+  shadow: 'bg-[#781b36]',
+  noText: 'bg-[#5e1229]',
+  memory: 'bg-[#3d0b1b]'
 }
 
-function speechRecognition(): SpeechRecognitionCtor | null {
-  const w = window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
-}
-
-/** One-line reason why the mic can't be used, from a recognition/permission error. */
-function micReason(error: string): string {
-  if (error === 'network' || error === 'service-not-allowed')
-    return "Speech recognition needs Google's online service, which this desktop app can't use. Using Self-check instead."
-  if (error === 'not-allowed') return 'Microphone permission was denied. Using Self-check instead.'
-  if (error === 'audio-capture' || error === 'no-mic') return 'No microphone was found. Using Self-check instead.'
-  if (error === 'unsupported') return "Speech recognition isn't available here. Using Self-check instead."
-  return `Speech recognition failed (${error}). Using Self-check instead.`
-}
-
-/** Voice panel for Speak ×N on one subtitle line. */
+/**
+ * Speak focus mode: only the line, in large text, and the Shadow Ladder. Meaning,
+ * pronunciation and the Bangla hint are behind "?". Tap ✓ after each rep; Gemini checks
+ * the "say from memory" reps (not in Quiet mode).
+ */
 export function SpeakPanel({ line }: { line: SubtitleLine }): ReactNode {
   const practice = useContext(PracticeContext)
-  const total = usePractice((s) => s.speakCount)
-  const { openSpeak, setSpeakCount } = usePractice.getState()
-  const { toastError } = useApp.getState()
-  const words = line.text.split(/\s+/).filter(Boolean)
-  const [pron, setPron] = useState<PronounceResult | null>(null)
-  const [stats, setStats] = useState<PracticeStats | null>(null)
+  const store = useStudyStore()
+  const host = usePractice((s) => s.speakHost)
+  const isRemix = line.id.startsWith('remix:')
+  const maxReps = isRemix ? 5 : 14
+  const reps = Math.min(maxReps, usePractice((s) => s.speakCount))
+  const quiet = usePractice((s) => s.quiet)
+  const autoAdvance = usePractice((s) => s.autoAdvance)
+  const { openSpeak, setSpeakCount, setQuiet, setAutoAdvance } = usePractice.getState()
   const hasKey = useApp((s) => !!s.settings?.hasGeminiKey)
-  // Desktop app: Chrome's speech service isn't available, so Gemini listens to the recording instead.
-  const aiEar = hasKey && navigator.userAgent.includes('Electron') && typeof MediaRecorder !== 'undefined'
-  const canMic = aiEar || !!speechRecognition()
-  const [mode, setMode] = useState<'mic' | 'selfcheck'>(canMic ? 'mic' : 'selfcheck')
-  const [reason, setReason] = useState<string | null>(canMic ? null : micReason('unsupported'))
-  const [aiThinking, setAiThinking] = useState(false)
-  const [heardText, setHeardText] = useState<string | null>(null)
-  const [attempt, setAttempt] = useState(0) // attempts finished
-  const [listening, setListening] = useState(false)
-  const [heard, setHeard] = useState<boolean[] | null>(null)
-  const [retryGrey, setRetryGrey] = useState(false)
-  const [recording, setRecording] = useState<string | null>(null)
-  const [rating, setRating] = useState<PracticeRating | null>(null)
-  const [englishVoice, setEnglishVoice] = useState<SpeechSynthesisVoice | null>(null)
-  const [busy, setBusy] = useState<'listen' | 'compare' | null>(null)
-  const stopRef = useRef<(() => void) | null>(null)
-  const cancelPlay = useRef(false)
+  const { toastError } = useApp.getState()
 
-  const finalAttempt = attempt === total - 1 && !retryGrey
-  const finished = attempt >= total
+  const plan = ladder(reps)
+  const [index, setIndex] = useState(0)
+  const [done, setDone] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [meaning, setMeaning] = useState<string | null>(null)
+  const [pron, setPron] = useState<PronounceResult | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [heard, setHeard] = useState<{ words: boolean[]; text: string } | null>(null)
+  const stopRec = useRef<(() => void) | null>(null)
+  const cancelled = useRef(false)
+  const saved = useRef(false)
 
+  const rep = plan[Math.min(index, plan.length - 1)]
+  const stageReps = plan.filter((r) => r.stage === rep.stage).length
+  const stageIndex = plan.slice(0, index + 1).filter((r) => r.stage === rep.stage).length
+  const words = line.text.split(/\s+/).filter(Boolean)
+  const useOriginal = !!practice?.canPlay(line)
+  const aiEar = hasKey && !quiet && typeof MediaRecorder !== 'undefined'
+  const lines = store.getState().lines
+  const nextLine = host !== 'room' ? lines[lines.findIndex((l) => l.id === line.id) + 1] : undefined
+
+  /** Plays the original clip if that movie/video is loaded here, otherwise the AI voice. */
+  const play = async (): Promise<void> => {
+    setPlaying(true)
+    cancelled.current = false
+    try {
+      if (useOriginal && practice) {
+        await playSegment(practice.player, line, 1, () => cancelled.current)
+        await practice.player.pause()
+      } else {
+        await playAiVoice(line.text)
+      }
+    } catch (err) {
+      toastError(err)
+    } finally {
+      setPlaying(false)
+    }
+  }
+
+  const advance = (): void => {
+    setHeard(null)
+    if (index + 1 >= plan.length) setDone(true)
+    else setIndex(index + 1)
+  }
+
+  // Listen reps play by themselves and count when the audio ends. The first one starts on open
+  // (so "Next line" loads the line and plays it).
   useEffect(() => {
-    void invoke('practice:pronounce', line.text).then(setPron).catch(() => setPron({ words: [], tips: [] }))
-    void invoke('practice:stats').then(setStats).catch(() => undefined)
-    // Text-to-speech fallback only if an English voice exists.
-    const pick = (): void => setEnglishVoice(speechSynthesis.getVoices().find((v) => /^en/i.test(v.lang)) ?? null)
-    pick()
-    speechSynthesis.addEventListener?.('voiceschanged', pick)
+    if (done || rep.stage !== 'listen') return
+    let live = true
+    void play().then(() => live && advance())
     return () => {
-      speechSynthesis.removeEventListener?.('voiceschanged', pick)
-      stopRef.current?.()
-      cancelPlay.current = true
+      live = false
+      cancelled.current = true
     }
-  }, [line.text])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, done, reps])
 
-  // Recordings stay in memory only; free them when replaced or closed.
-  useEffect(() => () => void (recording && URL.revokeObjectURL(recording)), [recording])
-
-  const listen = async (): Promise<void> => {
-    if (!practice) return
-    setBusy('listen')
-    cancelPlay.current = false
-    try {
-      await playSegment(practice.player, line, 1, () => cancelPlay.current)
-      await practice.player.pause()
-      recordFor(line, { listenReps: 1 })
-    } catch (err) {
-      toastError(err)
-    } finally {
-      setBusy(null)
+  // Final rep reached: save as "shadowed today" (remix sentences are practice only).
+  useEffect(() => {
+    if (!done || saved.current) return
+    saved.current = true
+    recordFor(line, { speakReps: plan.length })
+    if (!isRemix) {
+      void invoke('room:shadowed', {
+        line: { id: line.id, text: line.text, mediaPath: line.mediaPath || null, mediaTitle: line.mediaTitle || null, start: line.start, end: line.end },
+        reps: plan.length
+      }).catch(toastError)
     }
-  }
-
-  const speakTts = (): void => {
-    if (!englishVoice) return
-    const u = new SpeechSynthesisUtterance(line.text)
-    u.voice = englishVoice
-    u.lang = englishVoice.lang
-    speechSynthesis.cancel()
-    speechSynthesis.speak(u)
-  }
-
-  const compare = async (): Promise<void> => {
-    if (!practice || !recording) return
-    setBusy('compare')
-    cancelPlay.current = false
-    try {
-      await playSegment(practice.player, line, 1, () => cancelPlay.current)
-      await practice.player.pause()
-      await new Promise<void>((resolve) => {
-        const a = new Audio(recording)
-        a.onended = () => resolve()
-        a.onerror = () => resolve()
-        void a.play().catch(() => resolve())
-      })
-    } catch (err) {
-      toastError(err)
-    } finally {
-      setBusy(null)
+    if (autoAdvance && nextLine) {
+      const t = setTimeout(() => openSpeak(nextLine, host ?? undefined), 1200)
+      return () => clearTimeout(t)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [done])
+
+  useEffect(
+    () => () => {
+      cancelled.current = true
+      stopRec.current?.()
+    },
+    []
+  )
+
+  const openHelp = (): void => {
+    const open = !helpOpen
+    setHelpOpen(open)
+    if (open && !pron) void invoke('practice:pronounce', line.text).then(setPron).catch(() => setPron({ words: [], tips: [] }))
+    if (open && meaning === null && hasKey) void invoke('practice:meaning', line.text).then(setMeaning).catch(() => setMeaning(''))
   }
 
-  const switchToSelfCheck = (why: string): void => {
-    setMode('selfcheck')
-    setReason(micReason(why))
-    setListening(false)
+  const changeReps = (n: number): void => {
+    setSpeakCount(Math.min(maxReps, Math.max(1, n)))
+    setIndex(0)
+    setDone(false)
+    setHeard(null)
+    saved.current = false
   }
 
-  /** Gemini listens: record until stop (or a time limit), then Gemini writes down what it heard. */
-  const startAiMic = async (): Promise<void> => {
+  /** Memory rep with the mic: record, Gemini writes down what it heard, the rep counts. */
+  const checkWithAi = async (): Promise<void> => {
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch (err) {
-      return switchToSelfCheck((err as Error).name === 'NotAllowedError' ? 'not-allowed' : 'no-mic')
+    } catch {
+      toastError(new Error("The microphone isn't available. Tap ✓ instead."))
+      return
     }
-    const target = retryGrey && heard ? words.filter((_, i) => !heard[i]) : words
-    const retry = retryGrey
     const chunks: Blob[] = []
     const recorder = new MediaRecorder(stream)
     recorder.addEventListener('dataavailable', (e) => chunks.push(e.data))
     const lineSec = Math.max(0, (line.end ?? 0) - (line.start ?? 0))
-    const autoStop = setTimeout(() => recorder.state === 'recording' && recorder.stop(), Math.max(4000, lineSec * 2500 + 2500))
+    const auto = setTimeout(() => recorder.state === 'recording' && recorder.stop(), Math.max(4000, lineSec * 2500 + 2500))
     recorder.addEventListener('stop', () => {
-      clearTimeout(autoStop)
+      clearTimeout(auto)
       stream.getTracks().forEach((t) => t.stop())
-      stopRef.current = null
-      setListening(false)
-      const blob = new Blob(chunks, { type: recorder.mimeType })
-      setRecording(URL.createObjectURL(blob))
-      setAiThinking(true)
+      stopRec.current = null
+      setRecording(false)
+      setChecking(true)
       void (async () => {
         try {
-          const text = await invoke('practice:transcribeSpeech', { audioBase64: await recordingToWavBase64(blob), mimeType: 'audio/wav' })
-          setHeardText(text)
-          setHeard((prev) => mergeHeard(prev, matchHeard(target, text), retry))
-          if (!retry) {
-            setAttempt((a) => a + 1)
-            recordFor(line, { speakReps: 1 })
-          }
-          setRetryGrey(false)
+          const audioBase64 = await recordingToWavBase64(new Blob(chunks, { type: recorder.mimeType }))
+          const text = await invoke('practice:transcribeSpeech', { audioBase64, mimeType: 'audio/wav' })
+          setHeard({ words: matchHeard(words, text), text })
         } catch (err) {
           toastError(err)
         } finally {
-          setAiThinking(false)
+          setChecking(false)
         }
       })()
     })
-    stopRef.current = () => recorder.state === 'recording' && recorder.stop()
-    if (!retry) setHeard(words.map(() => false))
-    setHeardText(null)
-    setListening(true)
+    stopRec.current = () => recorder.state === 'recording' && recorder.stop()
+    setRecording(true)
     recorder.start()
   }
 
-  const startMic = async (): Promise<void> => {
-    if (aiEar) return startAiMic()
-    const SR = speechRecognition()
-    if (!SR) return switchToSelfCheck('unsupported')
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch (err) {
-      return switchToSelfCheck((err as Error).name === 'NotAllowedError' ? 'not-allowed' : 'no-mic')
-    }
-    const target = retryGrey && heard ? words.filter((_, i) => !heard[i]) : words
-    const chunks: Blob[] = []
-    const recorder = typeof MediaRecorder !== 'undefined' ? new MediaRecorder(stream) : null
-    recorder?.addEventListener('dataavailable', (e) => chunks.push(e.data))
-    recorder?.addEventListener('stop', () => {
-      stream.getTracks().forEach((t) => t.stop())
-      if (chunks.length) setRecording(URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType })))
-    })
-    const rec = new SR()
-    rec.lang = 'en-US'
-    rec.interimResults = true
-    rec.continuous = false
-    let transcript = ''
-    let failed: string | null = null
-    rec.onresult = (e) => {
-      transcript = Array.from(e.results)
-        .map((r) => r[0].transcript)
-        .join(' ')
-      const live = matchHeard(target, transcript)
-      setHeard((prev) => mergeHeard(prev, live, retryGrey))
-    }
-    rec.onerror = (e) => {
-      if (e.error !== 'no-speech' && e.error !== 'aborted') failed = e.error
-    }
-    rec.onend = () => {
-      if (recorder?.state === 'recording') recorder.stop()
-      else stream.getTracks().forEach((t) => t.stop())
-      setListening(false)
-      stopRef.current = null
-      if (failed) return switchToSelfCheck(failed)
-      const final = matchHeard(target, transcript)
-      setHeard((prev) => mergeHeard(prev, final, retryGrey))
-      if (!retryGrey) {
-        setAttempt((a) => a + 1)
-        recordFor(line, { speakReps: 1 })
-      }
-      setRetryGrey(false)
-    }
-    stopRef.current = () => rec.stop()
-    setListening(true)
-    if (!retryGrey) setHeard(words.map(() => false))
-    recorder?.start()
-    rec.start()
+  const close = (): void => openSpeak(null)
+  const backToVideo = (): void => {
+    close()
+    if (host !== 'room' && practice) void practice.player.play().catch(() => undefined)
   }
 
-  /** In retry mode only the grey words are re-checked; earlier green words stay green. */
-  function mergeHeard(prev: boolean[] | null, now: boolean[], retry: boolean): boolean[] {
-    if (!retry || !prev) return now
-    const out = [...prev]
-    let k = 0
-    prev.forEach((h, i) => {
-      if (!h) out[i] = now[k++] ?? false
-    })
-    return out
-  }
-
-  const selfCheckDone = (): void => {
-    setAttempt((a) => a + 1)
-    recordFor(line, { speakReps: 1 })
-  }
-
-  const rate = (r: PracticeRating): void => {
-    setRating(r)
-    recordFor(line, { rating: r })
-    void invoke('practice:stats').then(setStats).catch(() => undefined)
-  }
-
-  const restart = (): void => {
-    setAttempt(0)
-    setHeard(null)
-    setRating(null)
-    setRetryGrey(false)
-  }
-
-  const greyCount = heard ? heard.filter((h) => !h).length : 0
-  const hideText = finalAttempt && !finished && (listening || attempt === total - 1)
+  const textHidden = !done && rep.hideText
+  const heardCount = heard ? heard.words.filter(Boolean).length : 0
 
   return (
-    <aside
-      aria-label="Speak practice"
-      className="glass-elevated anim-pop-in absolute inset-y-2 right-2 z-40 flex w-[min(420px,calc(100%-1rem))] flex-col overflow-hidden"
-    >
+    <aside aria-label="Speak focus mode" className="glass-elevated anim-pop-in absolute inset-y-2 right-2 z-40 flex w-[min(460px,calc(100%-1rem))] flex-col overflow-hidden">
+      {/* Stage + counter */}
       <div className="glass-header flex h-12 shrink-0 items-center gap-2 rounded-t-2xl px-4">
-        <Mic className="size-4 text-rose" />
-        <h2 className="text-sm font-semibold">Speak ×{total}</h2>
-        <CountPicker value={total} onChange={(c) => (setSpeakCount(c), restart())} label="Speak count" />
-        {stats && (
-          <span className="ml-auto hidden text-[11px] text-muted sm:inline" title="Your practice so far">
-            {stats.linesPractised} lines · {stats.listenReps} listens · {stats.speakReps} speaks
-          </span>
-        )}
-        <Button variant="ghost" size="sm" className={stats ? '' : 'ml-auto'} icon={<X className="size-4" />} onClick={() => openSpeak(null)} aria-label="Close" />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {done ? 'Done ✓' : `${rep.label} · ${stageIndex}/${stageReps}`}
+        </span>
+        <span className="text-xs text-muted tabular-nums">
+          {done ? plan.length : index + 1}/{plan.length}
+        </span>
+        <Button variant="ghost" size="sm" icon={<CircleHelp className="size-4" />} onClick={openHelp} aria-label="Meaning and pronunciation" aria-expanded={helpOpen} />
+        <Button variant="ghost" size="sm" icon={<X className="size-4" />} onClick={close} aria-label="Close" />
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        {/* The line: words light up green as they're understood; hidden on the from-memory attempt. */}
-        <div>
-          {hideText ? (
-            <p className="rounded-xl bg-accent-soft px-3 py-3 text-center text-sm font-medium text-accent">Final attempt: say it from memory 🙂</p>
+      {/* Ladder progress */}
+      <div className="flex shrink-0 gap-1 px-4 pt-3" aria-hidden>
+        {plan.map((r, i) => (
+          <span key={i} className={cn('h-1.5 flex-1 rounded-full transition-opacity', STAGE_COLOR[r.stage], i < index || done ? 'opacity-100' : i === index ? 'opacity-60' : 'opacity-15')} />
+        ))}
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
+        {/* The line, large */}
+        <div className="flex min-h-[8rem] flex-1 items-center justify-center text-center">
+          {textHidden ? (
+            <p className="text-lg font-medium text-accent">{rep.stage === 'memory' ? 'Say it from memory 🙂' : 'Say it without looking 🙂'}</p>
           ) : (
-            <p className="text-[17px] leading-relaxed font-medium">
+            <p className="text-[26px] leading-snug font-semibold">
               {words.map((w, i) => (
-                <span
-                  key={i}
-                  className={cn(
-                    'motion-hover rounded px-0.5',
-                    heard?.[i] === true && 'bg-[rgba(31,122,58,0.12)] text-[#1f7a3a]',
-                    heard?.[i] === false && !listening && 'text-muted/70'
-                  )}
-                >
+                <span key={i} className={cn(heard && (heard.words[i] ? 'text-[#1f7a3a]' : 'text-muted/60'))}>
                   {w}{' '}
                 </span>
               ))}
             </p>
           )}
-          {pron && !hideText && (
-            <div className="mt-2 space-y-0.5 text-sm">
-              <p className="text-muted">
-                /{pron.words.map((w) => w.ipa ?? w.word).join(' ')}/
+        </div>
+
+        {helpOpen && (
+          <div className="glass-inset anim-fade-in mb-4 space-y-1.5 rounded-xl p-3 text-sm">
+            {meaning ? <p>{meaning}</p> : hasKey && meaning === null ? <p className="text-muted">Loading meaning…</p> : null}
+            {pron && <p className="text-muted">/{pron.words.map((w) => w.ipa ?? w.word).join(' ')}/</p>}
+            {pron && <p className="text-xs text-muted">উচ্চারণের ধারণা: {pron.words.map((w) => w.bangla ?? w.word).join(' ')}</p>}
+            {pron?.tips.map((t, i) => (
+              <p key={i} className="text-xs">
+                {t.tip}
               </p>
-              <p className="text-xs text-muted">উচ্চারণের ধারণা: {pron.words.map((w) => w.bangla ?? w.word).join(' ')}</p>
-            </div>
-          )}
-          <p className="mt-1 text-[11px] text-muted tabular-nums">
-            {line.mediaTitle} · {formatTimestamp(line.start)}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button icon={<Headphones className="size-4" />} loading={busy === 'listen'} onClick={() => void listen()} disabled={!practice || busy !== null}>
-            Listen
-          </Button>
-          {englishVoice && (
-            <Button variant="ghost" icon={<Volume2 className="size-4" />} onClick={speakTts} title={`Read aloud with ${englishVoice.name}`}>
-              Voice
-            </Button>
-          )}
-          {recording && (
-            <Button variant="ghost" icon={<Play className="size-4" />} loading={busy === 'compare'} onClick={() => void compare()} disabled={busy !== null}>
-              Original, then me
-            </Button>
-          )}
-        </div>
-
-        {/* Attempts */}
-        <div className="glass-inset rounded-xl p-3">
-          <div className="mb-3 flex items-center gap-1.5" aria-label={`Attempt ${Math.min(attempt + 1, total)} of ${total}`}>
-            {Array.from({ length: total }, (_, i) => (
-              <span key={i} className={cn('size-2.5 rounded-full transition-colors', i < attempt ? 'bg-accent' : i === attempt && !finished ? 'bg-rose/60' : 'bg-line')} />
             ))}
-            <span className="ml-auto text-xs text-muted tabular-nums">
-              {finished ? 'Done' : `Attempt ${attempt + 1} of ${total}`}
-            </span>
           </div>
+        )}
 
-          {reason && (
-            <p className="mb-2 flex items-start gap-1.5 text-xs text-warn">
-              <MicOff className="mt-0.5 size-3.5 shrink-0" /> {reason}
-            </p>
-          )}
+        {heard && !textHidden && (
+          <p className="mb-3 text-center text-xs text-muted">
+            The app understood {heardCount} of {words.length} words. Gemini heard: “{heard.text || '…nothing clear'}”
+          </p>
+        )}
 
-          {!finished && mode === 'mic' && (
-            <div className="flex flex-col items-center gap-2">
-              {aiThinking ? (
-                <Button variant="secondary" className="h-12 w-full text-base" icon={<Loader2 className="size-4 animate-spin" />} disabled>
-                  Gemini is listening to your recording…
-                </Button>
-              ) : listening ? (
-                <Button variant="primary" className="h-12 w-full text-base" icon={<Square className="size-4" />} onClick={() => stopRef.current?.()}>
-                  Listening… tap to stop
-                </Button>
-              ) : (
-                <Button variant="primary" className="h-12 w-full text-base" icon={<Mic className="size-5" />} onClick={() => void startMic()}>
-                  {retryGrey ? 'Say the grey words' : 'Speak'}
-                </Button>
-              )}
+        {!done ? (
+          <div className="space-y-2.5">
+            <div className="flex gap-2">
+              <Button className="flex-1" icon={playing ? <Square className="size-4" /> : <Play className="size-4" />} onClick={() => (playing ? (cancelled.current = true) : void play())}>
+                {playing ? 'Stop' : 'Listen'}
+                <span className="text-[11px] font-normal text-muted">{useOriginal ? '' : '· AI voice'}</span>
+              </Button>
+              <label className="flex items-center gap-1.5 rounded-[10px] px-2 text-xs text-muted" title="Mumbled or whispered reps count fully">
+                <input type="checkbox" className="size-4 accent-[var(--accent)]" checked={quiet} onChange={(e) => setQuiet(e.target.checked)} />
+                Quiet mode
+              </label>
             </div>
-          )}
 
-          {!finished && mode === 'selfcheck' && (
-            <Button variant="primary" className="h-12 w-full text-base" icon={<Check className="size-5" />} onClick={selfCheckDone}>
-              I said it ({attempt + 1}/{total})
-            </Button>
-          )}
-
-          {heard && !listening && mode === 'mic' && attempt > 0 && (
-            <div className="mt-3 text-xs">
-              <p className="text-muted">
-                The app understood {heard.length - greyCount} of {heard.length} words (green). This shows what speech recognition heard; it can&apos;t judge pronunciation exactly.
-              </p>
-              {heardText !== null && (
-                <p className="mt-1 text-muted">
-                  Gemini heard: <span className="text-fg">“{heardText || '…nothing clear'}”</span>
-                </p>
-              )}
-              {greyCount > 0 && !finished && (
-                <Button size="sm" className="mt-2" icon={<RotateCcw className="size-3.5" />} onClick={() => setRetryGrey(true)}>
-                  Retry grey words
-                </Button>
-              )}
-            </div>
-          )}
-
-          {finished && (
-            <div className="mt-1">
-              <p className="mb-2 text-sm font-medium">How did it feel?</p>
-              <div className="grid grid-cols-3 gap-2">
-                {(['Easy', 'OK', 'Hard'] as PracticeRating[]).map((r) => (
-                  <Button key={r} variant={rating === r ? 'primary' : 'secondary'} className="h-10" onClick={() => rate(r)}>
-                    {r}
+            {rep.stage === 'listen' ? (
+              <Button variant="secondary" className="h-14 w-full text-base" disabled icon={<Loader2 className={cn('size-5', playing && 'animate-spin')} />}>
+                Listening…
+              </Button>
+            ) : heard ? (
+              <Button variant="primary" className="h-14 w-full text-base" icon={<SkipForward className="size-5" />} onClick={advance}>
+                Next rep
+              </Button>
+            ) : rep.stage === 'memory' && aiEar ? (
+              <div className="flex gap-2">
+                {checking ? (
+                  <Button variant="secondary" className="h-14 flex-1 text-base" disabled icon={<Loader2 className="size-5 animate-spin" />}>
+                    Gemini is listening…
                   </Button>
-                ))}
+                ) : recording ? (
+                  <Button variant="primary" className="h-14 flex-1 text-base" icon={<Square className="size-5" />} onClick={() => stopRec.current?.()}>
+                    Tap when done
+                  </Button>
+                ) : (
+                  <Button variant="primary" className="h-14 flex-1 text-base" icon={<Mic className="size-5" />} onClick={() => void checkWithAi()}>
+                    Say it (Gemini checks)
+                  </Button>
+                )}
+                <Button className="h-14 w-16" icon={<Check className="size-5" />} onClick={advance} aria-label="I said it" title="Skip the check: I said it" disabled={recording || checking} />
               </div>
-              {rating === 'Hard' && <p className="mt-2 text-xs text-muted">Added to your Hard lines review list.</p>}
-              <Button size="sm" variant="ghost" className="mt-2" icon={<RotateCcw className="size-3.5" />} onClick={restart}>
-                Practise again
+            ) : (
+              <Button variant="primary" className="h-14 w-full text-base" icon={<Check className="size-5" />} onClick={advance}>
+                I said it
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {!isRemix && <p className="text-center text-sm text-muted">Saved to today&apos;s Practice Room 🌱 First review in 3 days.</p>}
+            <div className="flex gap-2">
+              {nextLine && (
+                <Button variant="primary" className="h-12 flex-1 text-base" icon={<SkipForward className="size-5" />} onClick={() => openSpeak(nextLine, host ?? undefined)}>
+                  Next line
+                </Button>
+              )}
+              <Button className="h-12 flex-1 text-base" icon={<Undo2 className="size-5" />} onClick={host === 'room' ? close : backToVideo}>
+                {host === 'room' ? 'Done' : 'Back to video'}
               </Button>
             </div>
-          )}
-        </div>
-
-        {/* Bangla sound-trap tips */}
-        {pron && pron.tips.length > 0 && (
-          <div>
-            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted uppercase">
-              <Lightbulb className="size-3.5 text-rose" /> Sound tips
-            </p>
-            <ul className="space-y-1.5 text-sm">
-              {pron.tips.map((t, i) => (
-                <li key={i} className="rounded-lg bg-white/55 px-2.5 py-1.5">
-                  {t.tip}
-                </li>
-              ))}
-            </ul>
+            {host !== 'room' && (
+              <label className="flex items-center justify-center gap-1.5 text-xs text-muted">
+                <input type="checkbox" className="size-4 accent-[var(--accent)]" checked={autoAdvance} onChange={(e) => setAutoAdvance(e.target.checked)} />
+                Go to the next line automatically
+              </label>
+            )}
           </div>
         )}
+      </div>
 
-        {/* Review list */}
-        {stats && stats.hardLines.length > 0 && (
-          <details className="text-sm">
-            <summary className="cursor-pointer text-xs font-semibold tracking-wide text-muted uppercase">Hard lines to review ({stats.hardLines.length})</summary>
-            <ul className="mt-2 space-y-1">
-              {stats.hardLines.map((h) => (
-                <li key={h.lineKey}>
-                  <button
-                    className="motion-hover w-full rounded-lg px-2 py-1.5 text-left hover:bg-white/70"
-                    onClick={() =>
-                      openSpeak({ id: h.lineKey, text: h.text, start: h.start, end: h.end, mediaPath: h.mediaPath ?? '', mediaTitle: h.mediaTitle ?? '' })
-                    }
-                  >
-                    <span className="block truncate">{h.text}</span>
-                    <span className="text-[11px] text-muted">
-                      {h.mediaTitle} · {formatTimestamp(h.start)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
+      {/* Rep stepper */}
+      <div className="flex shrink-0 items-center justify-center gap-3 border-t border-line/70 bg-white/40 px-4 py-2.5 text-sm">
+        <span className="text-xs text-muted">Reps</span>
+        <Button size="sm" icon={<Minus className="size-3.5" />} onClick={() => changeReps(reps - 1)} disabled={reps <= 1} aria-label="Fewer reps" />
+        <span className="w-6 text-center font-semibold tabular-nums">{reps}</span>
+        <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => changeReps(reps + 1)} disabled={reps >= maxReps} aria-label="More reps" />
       </div>
     </aside>
   )

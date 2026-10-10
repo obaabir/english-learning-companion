@@ -3,15 +3,17 @@ import { Mic, Repeat2, SkipForward, Square } from 'lucide-react'
 import type { SubtitleLine } from '@shared/types'
 import { useApp } from '@renderer/stores/app'
 import { Button, Select } from '@renderer/components/ui'
-import { COUNTS, PracticeContext, playSegment, recordFor, repeatPlan, usePractice, type Count, type PracticeActions, type PracticePlayer } from './practiceCore'
+import { COUNTS, PracticeContext, playSegment, recordFor, repeatPlan, usePractice, type Count, type PracticeActions, type PracticePlayer, type SpeakHost } from './practiceCore'
 
 /** Runs Repeat ×N sessions on a player (one at a time). */
-export function usePracticeActions(player: PracticePlayer): PracticeActions {
+export function usePracticeActions(player: PracticePlayer, host: SpeakHost, canPlay: (line: SubtitleLine) => boolean): PracticeActions {
   const run = useRef<{ cancel: boolean; skip: boolean } | null>(null)
   return useMemo<PracticeActions>(() => {
     const { setRepeat } = usePractice.getState()
     return {
+      host,
       player,
+      canPlay,
       startRepeat: (line) => {
         if (run.current) run.current.cancel = true
         const token = { cancel: false, skip: false }
@@ -47,7 +49,7 @@ export function usePracticeActions(player: PracticePlayer): PracticeActions {
         if (run.current) run.current.skip = true
       }
     }
-  }, [player])
+  }, [player, host, canPlay])
 }
 
 export function CountPicker({ value, onChange, label }: { value: Count; onChange: (c: Count) => void; label: string }): ReactNode {
@@ -66,9 +68,8 @@ export function CountPicker({ value, onChange, label }: { value: Count; onChange
 export function LineActions({ line }: { line: SubtitleLine }): ReactNode {
   const practice = useContext(PracticeContext)
   const repeatCount = usePractice((s) => s.repeatCount)
-  const speakCount = usePractice((s) => s.speakCount)
   const smart = usePractice((s) => s.smart)
-  const { setRepeatCount, setSpeakCount, setSmart, openSpeak } = usePractice.getState()
+  const { setRepeatCount, setSmart, openSpeak } = usePractice.getState()
   if (!practice || line.start == null) return null
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -81,10 +82,9 @@ export function LineActions({ line }: { line: SubtitleLine }): ReactNode {
         Smart
       </label>
       <span className="mx-1 h-4 w-px bg-line" />
-      <Button size="sm" icon={<Mic className="size-3.5" />} onClick={() => openSpeak(line)} title="Say this line several times">
+      <Button size="sm" icon={<Mic className="size-3.5" />} onClick={() => openSpeak(line, practice.host)} title="Shadow this line (Speak focus mode)">
         Speak
       </Button>
-      <CountPicker value={speakCount} onChange={setSpeakCount} label="Speak count" />
     </div>
   )
 }

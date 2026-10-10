@@ -274,6 +274,60 @@ export interface PracticeStats {
   hardLines: PracticeLine[]
 }
 
+/** Practice Room: a shadowed line and its spaced-review schedule. */
+export interface ShadowLine {
+  id: string
+  text: string
+  mediaPath: string | null
+  mediaTitle: string | null
+  start: number | null
+  end: number | null
+  /** Local date (YYYY-MM-DD) it was first shadowed. */
+  dateShadowed: string
+  reps: number
+  /** 0 = 3-day rung, 1 = 7, 2 = 14, 3 = 30; 4 = mastered. */
+  rung: number
+  nextDue: string | null
+  status: 'new' | 'learning' | 'mastered'
+  ratings: { date: string; rating: PracticeRating }[]
+  shadowDays: string[]
+}
+
+export interface StreakState {
+  streak: number
+  lastCheckedDay: string | null
+  /** Shields used per month (YYYY-MM). */
+  shieldsUsed: Record<string, number>
+  shieldDays: string[]
+}
+
+export interface RoomHome {
+  today: string
+  dayNumber: number
+  streak: number
+  shieldsLeft: number
+  shadowedToday: number
+  practisedToday: boolean
+  /** Today's capped queue, oldest first. */
+  queue: ShadowLine[]
+  dailyCap: number
+  totalLines: number
+}
+
+export interface CalendarDay {
+  date: string
+  dot: 'none' | 'shadowed' | 'due' | 'done' | 'upcoming'
+  /** Lines first shadowed that day. */
+  learned: number
+  due: number
+}
+
+export interface RemixSet {
+  date: string
+  phrases: { phrase: string; meaning_bn: string }[]
+  sentences: { en: string; bn: string }[]
+}
+
 export interface YouTubeVideo {
   videoId: string
   url: string

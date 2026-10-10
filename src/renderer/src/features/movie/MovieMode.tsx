@@ -2,9 +2,17 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { SubtitleFeed } from './SubtitleFeed'
 import { ExplainPanel } from './ExplainPanel'
-import { PracticeContext, createMoviePlayer, usePractice } from '@renderer/features/practice/practiceCore'
+import { PracticeContext, getMoviePlayer, usePractice } from '@renderer/features/practice/practiceCore'
+import { useMovie } from '@renderer/stores/movie'
+import type { SubtitleLine } from '@shared/types'
 import { usePracticeActions } from '@renderer/features/practice/PracticeControls'
 import { SpeakPanel } from '@renderer/features/practice/SpeakPanel'
+
+/** A movie line's original clip can play when that movie is open in the player. */
+export function canPlayMovieLine(line: SubtitleLine): boolean {
+  const st = useMovie.getState().status
+  return line.start != null && st.connected && !!line.mediaPath && st.mediaPath === line.mediaPath
+}
 
 /** Below this width (px) the two panels stack vertically, e.g. in a narrow laptop split-screen window. */
 const STACK_BELOW = 640
@@ -12,9 +20,10 @@ const STACK_BELOW = 640
 export function MovieMode(): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
   const [stacked, setStacked] = useState(false)
-  const player = useMemo(() => createMoviePlayer(), [])
-  const practice = usePracticeActions(player)
+  const player = useMemo(() => getMoviePlayer(), [])
+  const practice = usePracticeActions(player, 'movie', canPlayMovieLine)
   const speakLine = usePractice((s) => s.speakLine)
+  const speakHost = usePractice((s) => s.speakHost)
 
   // Respond to the space this view actually has, not the screen size.
   useEffect(() => {
@@ -49,7 +58,7 @@ export function MovieMode(): ReactNode {
           </Panel>
         </Group>
       )}
-      {speakLine && !/^https?:\/\//i.test(speakLine.mediaPath) && <SpeakPanel key={speakLine.id} line={speakLine} />}
+      {speakLine && speakHost === 'movie' && <SpeakPanel key={speakLine.id} line={speakLine} />}
     </div>
     </PracticeContext.Provider>
   )

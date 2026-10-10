@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
-import { BookOpen, Clapperboard, Gamepad2, GraduationCap, Layers, ListChecks, Puzzle, Settings, Wand2 } from 'lucide-react'
+import { BookOpen, Clapperboard, Gamepad2, GraduationCap, Layers, ListChecks, Puzzle, Settings, Sprout, Wand2 } from 'lucide-react'
 import { useApp, type Page } from '@renderer/stores/app'
 import { cn } from '@renderer/lib/cn'
 import { YouTubeIcon } from '@renderer/features/youtube/YouTubeIcon'
@@ -14,6 +14,7 @@ interface NavItem {
 const MAIN: NavItem[] = [
   { page: 'movie', label: 'Movie Mode', icon: <Clapperboard className="size-5" /> },
   { page: 'youtube', label: 'YouTube', icon: <YouTubeIcon className="size-5" /> },
+  { page: 'room', label: 'Practice', icon: <Sprout className="size-5" /> },
   { page: 'notes', label: 'Notes', icon: <BookOpen className="size-5" /> },
   { page: 'structures', label: 'Structures', icon: <Puzzle className="size-5" /> },
   { page: 'flashcards', label: 'Flashcards', icon: <Layers className="size-5" /> },

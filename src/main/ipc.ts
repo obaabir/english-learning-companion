@@ -33,6 +33,9 @@ import type { Player } from './player/Player'
 import { YouTubeService } from './youtube/YouTubeService'
 import { pronounce } from './practice/pronounce'
 import { practiceStats, recordPractice } from './db/repos/practice'
+import { PracticeRoom } from './practice/room'
+import { windowsVoiceWav } from './practice/voice'
+import { setDailyCap } from './db/repos/room'
 import { listRecentVideos, saveVideoPosition } from './db/repos/youtube'
 import { buildStudyMessage, DEFAULT_MODEL, fallbackFlashcard, type GeminiService } from './ai/gemini'
 import type { GoogleService } from './google/GoogleService'
@@ -171,6 +174,19 @@ export function registerIpc(s: Services): void {
   handle('practice:record', (r) => recordPractice(db, r))
   handle('practice:stats', () => practiceStats(db))
   handle('practice:transcribeSpeech', ({ audioBase64, mimeType }) => gemini.transcribeSpeech(audioBase64, mimeType))
+  handle('practice:meaning', (text) => gemini.meaningBn(text))
+  handle('practice:voice', (text) => windowsVoiceWav(text))
+
+  // ---- Practice Room
+  const room = new PracticeRoom(db, gemini)
+  handle('room:shadowed', ({ line, reps }) => room.shadowed(line, reps))
+  handle('room:home', () => room.home())
+  handle('room:review', ({ id, rating }) => room.review(id, rating))
+  handle('room:calendar', ({ year, month }) => room.calendar(year, month))
+  handle('room:day', (date) => room.day(date))
+  handle('room:setDailyCap', (cap) => setDailyCap(db, cap))
+  handle('room:remix', ({ date, refresh }) => room.remix(date, refresh))
+  handle('room:yourTurn', ({ sentence, phrases }) => gemini.yourTurn(sentence, phrases))
   handle('player:togglePause', () => player().togglePause())
   handle('player:seekTo', ({ mediaPath, seconds }) => {
     if (mediaPath && /^https?:\/\//i.test(mediaPath)) throw new Error('Open this video from the YouTube page.')

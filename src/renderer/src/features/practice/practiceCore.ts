@@ -84,68 +84,113 @@ interface RepeatState {
   rep: Rep
 }
 
-const prefs = (): { repeat: Count; speak: Count; smart: boolean } => {
+interface Prefs {
+  repeat: Count
+  /** Speak reps, 1–14. */
+  speak: number
+  smart: boolean
+  quiet: boolean
+  autoAdvance: boolean
+}
+
+const prefs = (): Prefs => {
+  const base: Prefs = { repeat: 5, speak: 5, smart: true, quiet: false, autoAdvance: false }
   try {
-    return { repeat: 5, speak: 5, smart: true, ...JSON.parse(localStorage.getItem('elc.practice.v1') ?? '{}') }
+    return { ...base, ...JSON.parse(localStorage.getItem('elc.practice.v1') ?? '{}') }
   } catch {
-    return { repeat: 5, speak: 5, smart: true }
+    return base
   }
 }
 
+/** Which page opened the Speak panel (each page shows only its own). */
+export type SpeakHost = 'movie' | 'youtube' | 'room'
+
 interface PracticeStore {
   repeatCount: Count
-  speakCount: Count
+  speakCount: number
   smart: boolean
+  quiet: boolean
+  autoAdvance: boolean
   repeat: RepeatState | null
   speakLine: SubtitleLine | null
+  speakHost: SpeakHost | null
   setRepeatCount: (c: Count) => void
-  setSpeakCount: (c: Count) => void
+  setSpeakCount: (n: number) => void
   setSmart: (v: boolean) => void
+  setQuiet: (v: boolean) => void
+  setAutoAdvance: (v: boolean) => void
   setRepeat: (r: RepeatState | null) => void
-  openSpeak: (line: SubtitleLine | null) => void
+  openSpeak: (line: SubtitleLine | null, host?: SpeakHost) => void
 }
 
 export const usePractice = create<PracticeStore>((set, get) => {
   const save = (): void => {
     try {
-      const { repeatCount, speakCount, smart } = get()
-      localStorage.setItem('elc.practice.v1', JSON.stringify({ repeat: repeatCount, speak: speakCount, smart }))
+      const { repeatCount, speakCount, smart, quiet, autoAdvance } = get()
+      localStorage.setItem('elc.practice.v1', JSON.stringify({ repeat: repeatCount, speak: speakCount, smart, quiet, autoAdvance }))
     } catch {
       // storage unavailable: keep for this session
     }
   }
   const p = prefs()
+  const remember = (patch: Partial<PracticeStore>): void => {
+    set(patch)
+    save()
+  }
   return {
     repeatCount: p.repeat,
-    speakCount: p.speak,
+    speakCount: Math.min(14, Math.max(1, Number(p.speak) || 5)),
     smart: p.smart,
+    quiet: p.quiet,
+    autoAdvance: p.autoAdvance,
     repeat: null,
     speakLine: null,
-    setRepeatCount: (repeatCount) => {
-      set({ repeatCount })
-      save()
-    },
-    setSpeakCount: (speakCount) => {
-      set({ speakCount })
-      save()
-    },
-    setSmart: (smart) => {
-      set({ smart })
-      save()
-    },
+    speakHost: null,
+    setRepeatCount: (repeatCount) => remember({ repeatCount }),
+    setSpeakCount: (n) => remember({ speakCount: Math.min(14, Math.max(1, Math.round(n))) }),
+    setSmart: (smart) => remember({ smart }),
+    setQuiet: (quiet) => remember({ quiet }),
+    setAutoAdvance: (autoAdvance) => remember({ autoAdvance }),
     setRepeat: (repeat) => set({ repeat }),
-    openSpeak: (speakLine) => set({ speakLine })
+    openSpeak: (speakLine, host) => set({ speakLine, speakHost: speakLine ? (host ?? get().speakHost ?? 'movie') : null })
   }
 })
 
-/** Practice actions offered on subtitle lines. Only Movie Mode provides them (null elsewhere). */
+/** Practice actions offered on subtitle lines (provided by Movie Mode, YouTube and the Practice Room). */
 export interface PracticeActions {
+  host: SpeakHost
   player: PracticePlayer
+  /** True when this line's original clip can be played here (same movie/video loaded). */
+  canPlay: (line: SubtitleLine) => boolean
   startRepeat: (line: SubtitleLine) => void
   stopRepeat: () => void
   skipRep: () => void
 }
 export const PracticeContext = createContext<PracticeActions | null>(null)
+
+let sharedMoviePlayer: PracticePlayer | null = null
+/** One movie player for the whole app (Movie Mode and Practice Room). */
+export function getMoviePlayer(): PracticePlayer {
+  sharedMoviePlayer ??= createMoviePlayer()
+  return sharedMoviePlayer
+}
+
+/** "AI voice": Windows' built-in English voice reads the text; resolves when it has finished. */
+export async function playAiVoice(text: string): Promise<void> {
+  const b64 = await invoke('practice:voice', text)
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }))
+  try {
+    await new Promise<void>((resolve) => {
+      const a = new Audio(url)
+      a.onended = () => resolve()
+      a.onerror = () => resolve()
+      void a.play().catch(() => resolve())
+    })
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
 
 export function recordFor(line: SubtitleLine, extra: { listenReps?: number; speakReps?: number; rating?: 'Easy' | 'OK' | 'Hard' }): void {
   void invoke('practice:record', {

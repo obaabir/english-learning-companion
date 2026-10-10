@@ -183,6 +183,30 @@ const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       );
     `)
+  },
+  // v5: Practice Room (shadowed lines with spaced reviews, daily activity, remix sets).
+  (db) => {
+    db.exec(`
+      CREATE TABLE shadow_lines (
+        id TEXT PRIMARY KEY,
+        json TEXT NOT NULL,
+        next_due TEXT,
+        date_shadowed TEXT NOT NULL
+      );
+      CREATE INDEX shadow_lines_due ON shadow_lines(next_due);
+      CREATE INDEX shadow_lines_day ON shadow_lines(date_shadowed);
+
+      CREATE TABLE practice_activity (
+        day TEXT PRIMARY KEY,
+        shadowed INTEGER NOT NULL DEFAULT 0,
+        reviewed INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE remix_sets (
+        day TEXT PRIMARY KEY,
+        json TEXT NOT NULL
+      );
+    `)
   }
 ]
 

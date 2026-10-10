@@ -10,6 +10,10 @@ import type {
   YouTubeVideo,
   MovieNotesInfo,
   PracticeRating,
+  CalendarDay,
+  RemixSet,
+  RoomHome,
+  ShadowLine,
   PracticeStats,
   PronounceResult,
   PlayerStatus,
@@ -60,6 +64,20 @@ export interface Api {
   'practice:stats': () => Promise<PracticeStats>
   /** Gemini listens to a short recording and returns the words it heard. */
   'practice:transcribeSpeech': (args: { audioBase64: string; mimeType: string }) => Promise<string>
+  /** Short Bangla meaning of a line (Speak panel "?"). */
+  'practice:meaning': (text: string) => Promise<string>
+  /** "AI voice": Windows' built-in English voice reads the text (WAV, base64). */
+  'practice:voice': (text: string) => Promise<string>
+
+  /** Practice Room. */
+  'room:shadowed': (args: { line: Pick<ShadowLine, 'id' | 'text' | 'mediaPath' | 'mediaTitle' | 'start' | 'end'>; reps: number }) => Promise<ShadowLine>
+  'room:home': () => Promise<RoomHome>
+  'room:review': (args: { id: string; rating: PracticeRating }) => Promise<ShadowLine>
+  'room:calendar': (args: { year: number; month: number }) => Promise<CalendarDay[]>
+  'room:day': (date: string) => Promise<ShadowLine[]>
+  'room:setDailyCap': (cap: number) => Promise<void>
+  'room:remix': (args: { date: string; refresh?: boolean }) => Promise<RemixSet>
+  'room:yourTurn': (args: { sentence: string; phrases: string[] }) => Promise<{ corrected: string; tip_bn: string; ok: boolean }>
 
   'prompts:list': () => Promise<Prompt[]>
   'prompts:save': (p: { id?: number; name: string; instruction: string }) => Promise<Prompt>

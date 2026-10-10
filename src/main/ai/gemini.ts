@@ -1,6 +1,17 @@
 import { GoogleGenAI, MediaResolution, ThinkingLevel, type Content, type Schema, type ThinkingConfig } from '@google/genai'
 import type { FlashcardBack, Note, NoteData, StudyContext } from '@shared/types'
-import { EXTRACT_INSTRUCTION, FLASHCARD_INSTRUCTION, FLASHCARDS_SCHEMA, NOTE_DATA_SCHEMA, TRANSCRIPT_INSTRUCTION, TRANSCRIPT_SCHEMA } from './schemas'
+import {
+  EXTRACT_INSTRUCTION,
+  FLASHCARD_INSTRUCTION,
+  FLASHCARDS_SCHEMA,
+  NOTE_DATA_SCHEMA,
+  REMIX_INSTRUCTION,
+  REMIX_SCHEMA,
+  TRANSCRIPT_INSTRUCTION,
+  TRANSCRIPT_SCHEMA,
+  YOUR_TURN_INSTRUCTION,
+  YOUR_TURN_SCHEMA
+} from './schemas'
 
 export const DEFAULT_MODEL = 'gemini-flash-latest'
 
@@ -320,6 +331,30 @@ export class GeminiService {
               ]
             }
           ],
+          config: thinkingConfig ? { thinkingConfig } : undefined
+        })
+      const res = await this.withFastThinking(model, call)
+      return (res.text ?? '').trim()
+    })
+  }
+
+  /** Practice Room Remix: 3–5 useful phrases from the day's lines and 3 new short sentences. */
+  remix(lines: string[]): Promise<{ phrases: { phrase: string; meaning_bn: string }[]; sentences: { en: string; bn: string }[] }> {
+    return this.json(REMIX_INSTRUCTION, `Lines practised today:\n${lines.map((l) => `- ${l}`).join('\n')}`, REMIX_SCHEMA, true)
+  }
+
+  /** "Your turn": a corrected version of the learner's sentence and one Bangla tip. */
+  yourTurn(sentence: string, phrases: string[]): Promise<{ corrected: string; tip_bn: string; ok: boolean }> {
+    return this.json(YOUR_TURN_INSTRUCTION, `Phrases: ${phrases.join(', ')}\nLearner's sentence: "${sentence}"`, YOUR_TURN_SCHEMA, true)
+  }
+
+  /** Short natural Bangla meaning of a line (Speak panel "?"). */
+  async meaningBn(text: string): Promise<string> {
+    return this.resilient(async (model) => {
+      const call = (thinkingConfig: ThinkingConfig | undefined) =>
+        this.client().models.generateContent({
+          model,
+          contents: `Give the natural Bangla meaning of this English line in one short sentence, nothing else:\n"${text}"`,
           config: thinkingConfig ? { thinkingConfig } : undefined
         })
       const res = await this.withFastThinking(model, call)

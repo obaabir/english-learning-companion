@@ -80,6 +80,51 @@ Rules:
 - Give start and end times in seconds from the beginning of the full video.
 - Skip music, sound effects and silence. If nobody speaks, return an empty list.`
 
+export const REMIX_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    phrases: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: { phrase: { type: Type.STRING }, meaning_bn: { type: Type.STRING } },
+        required: ['phrase', 'meaning_bn'],
+        propertyOrdering: ['phrase', 'meaning_bn']
+      }
+    },
+    sentences: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: { en: { type: Type.STRING }, bn: { type: Type.STRING } },
+        required: ['en', 'bn'],
+        propertyOrdering: ['en', 'bn']
+      }
+    }
+  },
+  required: ['phrases', 'sentences'],
+  propertyOrdering: ['phrases', 'sentences']
+}
+
+export const REMIX_INSTRUCTION = `You help a Bangla-speaking English learner reuse language from lines they practised today.
+From the lines, pick the 3 to 5 most useful words or phrases (collocations, phrasal verbs, idioms, sentence starters; skip trivial words).
+Then write exactly 3 short new sentences (max 12 words each) using those phrases: simple, everyday, natural, at the learner's level.
+Give natural Bangla meanings for the phrases and Bangla translations for the sentences.`
+
+export const YOUR_TURN_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    corrected: { type: Type.STRING, description: 'The learner sentence, corrected and natural (unchanged if already correct)' },
+    tip_bn: { type: Type.STRING, description: 'One short tip in Bangla' },
+    ok: { type: Type.BOOLEAN, description: 'True if the original was already correct' }
+  },
+  required: ['corrected', 'tip_bn', 'ok'],
+  propertyOrdering: ['corrected', 'tip_bn', 'ok']
+}
+
+export const YOUR_TURN_INSTRUCTION = `A Bangla-speaking English learner wrote or said a sentence using one of the given phrases.
+Reply briefly: give the corrected, natural version (keep their idea; unchanged if already correct) and exactly one short, encouraging tip in Bangla.`
+
 export const EXTRACT_INSTRUCTION = `You turn English the learner saved into structured study notes for a Bangla-speaking English learner.
 Rules:
 - Bangla must be natural and conversational, not word-for-word.
