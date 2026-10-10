@@ -434,13 +434,13 @@ export class GeminiService {
       input.context ? `Topic nudge (optional for the learner): ${input.context}` : '',
       `Learner sentence: "${input.sentence}"`
     ]
-    return this.json<FspCheckResult>(FSP_CHECK_INSTRUCTION, parts.filter(Boolean).join('\n'), FSP_CHECK_SCHEMA, true)
+    return this.quickJson<FspCheckResult>(FSP_CHECK_INSTRUCTION, parts.filter(Boolean).join('\n'), FSP_CHECK_SCHEMA)
   }
 
   /** Flash Sentence Practice: an example sentence for a card that has none. */
   async fspExample(args: { term: string; type: FspCardType; meaningBn: string }): Promise<string> {
     const prompt = `${args.type}: "${args.term}"${args.meaningBn ? `\nMeaning (Bangla): ${args.meaningBn}` : ''}`
-    const r = await this.json<{ example?: string }>(FSP_EXAMPLE_INSTRUCTION, prompt, FSP_EXAMPLE_SCHEMA, true)
+    const r = await this.quickJson<{ example?: string }>(FSP_EXAMPLE_INSTRUCTION, prompt, FSP_EXAMPLE_SCHEMA)
     return (r?.example ?? '').trim()
   }
 
@@ -448,7 +448,72 @@ export class GeminiService {
   fspLesson(args: { type: FspErrorType; label: string; samples: { wrong: string; fix: string }[] }): Promise<FspLesson> {
     const parts = [`Mistake type: ${args.label} (${args.type})`]
     if (args.samples.length) parts.push(`The learner's own mistakes:\n${args.samples.map((x) => `- "${x.wrong}" -> "${x.fix}"`).join('\n')}`)
-    return this.json<FspLesson>(FSP_LESSON_INSTRUCTION, parts.join('\n\n'), FSP_LESSON_SCHEMA, true)
+    return this.quickJson<FspLesson>(FSP_LESSON_INSTRUCTION, parts.join('\n\n'), FSP_LESSON_SCHEMA)
+  }
+
+  /** Flash Sentence Practice: after this long without an answer, the light model is asked too. */
+  fspHedgeMs = 3500
+
+  /**
+   * Flash Sentence Practice: a quick JSON answer. No waiting between retries: if the main model is
+   * busy (or slow), the light model is asked at once and the first good answer wins.
+   */
+  private quickJson<T>(systemInstruction: string, prompt: string, schema: Schema): Promise<T> {
+    const call = async (model: string): Promise<T> => {
+      const res = await this.withFastThinking(model, (thinkingConfig) =>
+        this.client().models.generateContent({
+          model,
+          contents: prompt,
+          config: { systemInstruction, responseMimeType: 'application/json', responseSchema: schema, ...(thinkingConfig ? { thinkingConfig } : {}) }
+        })
+      )
+      return JSON.parse(res.text ?? 'null') as T
+    }
+    const main = this.model()
+    const light = this.fallbackModel()
+    return new Promise<T>((resolve, reject) => {
+      let settled = false
+      let running = 0
+      let lightStarted = false
+      let lastError: unknown = null
+      const win = (v: T): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(v)
+      }
+      const lose = (err: unknown): void => {
+        lastError = err
+        running--
+        if (!settled && running === 0 && lightStarted) {
+          settled = true
+          clearTimeout(timer)
+          reject(friendlyError(lastError))
+        }
+      }
+      const startLight = (): void => {
+        if (settled || lightStarted) return
+        lightStarted = true
+        running++
+        void light.then((model) => {
+          if (!model || model === main) {
+            running--
+            if (!settled && running === 0) {
+              settled = true
+              reject(friendlyError(lastError ?? new Error('Gemini did not answer.')))
+            }
+            return
+          }
+          call(model).then(win, lose)
+        })
+      }
+      const timer = setTimeout(startLight, this.fspHedgeMs)
+      running++
+      call(main).then(win, (err) => {
+        lose(err)
+        startLight()
+      })
+    })
   }
 
   async listModels(): Promise<string[]> {

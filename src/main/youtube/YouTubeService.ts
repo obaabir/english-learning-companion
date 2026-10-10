@@ -39,21 +39,36 @@ export class YouTubeService {
     private readonly db: Db,
     private readonly gemini: GeminiService,
     private readonly onProgress: (p: TranscriptProgress) => void,
-    private readonly busyWaitMs = BUSY_WAIT_MS
+    private readonly busyWaitMs = BUSY_WAIT_MS,
+    private readonly infoTimeoutMs = 5000
   ) {}
 
-  /** Checks a link and returns the video's details (YouTube's official oEmbed; free, no key). */
+  /**
+   * Checks a link and returns the video's details (YouTube's official oEmbed; free, no key).
+   * A video opened before comes back at once (its details refresh in the background). A new one
+   * waits at most a few seconds; if YouTube is slow, it opens with basic details.
+   */
   async info(link: string): Promise<YouTubeVideo> {
     const videoId = parseYouTubeId(link)
     if (!videoId) throw new Error("That doesn't look like a YouTube video link.")
     const url = canonicalUrl(videoId)
+    const cached = getVideo(this.db, videoId)
+    if (cached) {
+      void this.fetchDetails(videoId, url).catch(() => undefined)
+      return cached
+    }
+    const details = await this.fetchDetails(videoId, url)
+    if (!details) upsertVideoInfo(this.db, { videoId, url, title: 'YouTube video', channel: '', thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` })
+    return getVideo(this.db, videoId)!
+  }
+
+  /** Saves the title/channel/thumbnail from oEmbed. false = YouTube didn't answer in time. Throws for private/blocked/missing videos. */
+  private async fetchDetails(videoId: string, url: string): Promise<boolean> {
     let res: Response
     try {
-      res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`, { signal: AbortSignal.timeout(10000) })
+      res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`, { signal: AbortSignal.timeout(this.infoTimeoutMs) })
     } catch {
-      const cached = getVideo(this.db, videoId)
-      if (cached) return cached
-      throw new Error('Could not reach YouTube. Check your internet connection.')
+      return false
     }
     if (res.status === 401 || res.status === 403) throw new Error("This video can't be played inside other apps (its owner turned off embedding), or it is private.")
     if (!res.ok) throw new Error('Video not found. It may be private, deleted, or the link is wrong.')
@@ -65,7 +80,7 @@ export class YouTubeService {
       channel: o.author_name ?? '',
       thumbnailUrl: o.thumbnail_url ?? null
     })
-    return getVideo(this.db, videoId)!
+    return true
   }
 
   /** Makes (or resumes) the AI transcript. Concurrent calls for the same video share one run. */
