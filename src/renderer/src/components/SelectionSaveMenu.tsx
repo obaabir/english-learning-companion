@@ -66,7 +66,9 @@ interface MenuState extends SelectionInfo {
 
 const KINDS: { kind: NoteKind; label: string }[] = [
   { kind: 'word', label: 'Vocabulary' },
-  { kind: 'idiom', label: 'Idiom / Phrasal verb' },
+  { kind: 'idiom', label: 'Idiom' },
+  { kind: 'phrasal', label: 'Phrasal verb' },
+  { kind: 'collocation', label: 'Collocation' },
   { kind: 'sentence', label: 'Sentence' },
   { kind: 'structure', label: 'Sentence structure' },
   { kind: 'grammar', label: 'Grammar note' },
@@ -74,10 +76,10 @@ const KINDS: { kind: NoteKind; label: string }[] = [
 ]
 
 /** Flashcards make sense for language items; a general note is just kept as a note. */
-const CARD_KINDS: NoteKind[] = ['word', 'idiom', 'sentence', 'structure', 'grammar']
+const CARD_KINDS: NoteKind[] = ['word', 'idiom', 'phrasal', 'collocation', 'sentence', 'structure', 'grammar']
 const CARD_KEY = 'elc.saveMenu.flashcard'
 const MENU_W = 340
-const PANEL_H = 200
+const PANEL_H = 236
 
 /** Menu position above the selection (below it near the top of the window). */
 function place(rect: { left: number; top: number; bottom: number; width: number }): Pick<MenuState, 'x' | 'y' | 'top' | 'bottom'> {
@@ -214,6 +216,7 @@ export function SelectionSaveMenu(): ReactNode {
         }
       }
       if (note.gdocError) toast('error', `Saved to notes${cardMsg}, but Google Docs failed: ${note.gdocError}`)
+      else if (note.duplicate) toast('info', `Already in your notes${cardMsg}`)
       else toast('success', `${note.gdocSyncedAt ? 'Saved to notes and Google Docs' : 'Saved to notes'}${cardMsg}`)
       void refreshDue()
       close()

@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { CheckCircle2, Layers, List, Sparkles, Trash2 } from 'lucide-react'
-import type { Flashcard, FlashcardStats, ReviewRating } from '@shared/types'
+import { formatTimestamp, type Flashcard, type FlashcardStats, type ReviewRating } from '@shared/types'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Badge, Button, EmptyState, PanelHeader } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
 import { FlashSentencePractice } from './fsp/FlashSentencePractice'
+import { RevisionDashboard } from './RevisionDashboard'
+import { useIntents } from '@renderer/stores/intents'
 
 const RATINGS: { rating: ReviewRating; label: string; key: string; className: string }[] = [
   { rating: 1, label: 'Again', key: '1', className: 'text-danger' },
-  { rating: 2, label: 'Hard', key: '2', className: 'text-warn' },
+  { rating: 2, label: 'Difficult', key: '2', className: 'text-warn' },
   { rating: 3, label: 'Good', key: '3', className: 'text-accent' },
   { rating: 4, label: 'Easy', key: '4', className: 'text-info' }
 ]
@@ -156,6 +158,7 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
                     <p className="text-sm">{card.back.note}</p>
                   </Row>
                 )}
+                <CardSource card={card} />
               </div>
             ) : (
               <p className="mt-6 text-center text-sm text-muted">Try to recall the meaning, then click or press Space</p>
@@ -183,6 +186,54 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
         </EmptyState>
       )}
     </div>
+  )
+}
+
+/** The original context and source of the saved item, and its AI-generated examples, kept apart. */
+function CardSource({ card }: { card: Flashcard }): ReactNode {
+  const src = card.source
+  if (!src) return null
+  const more = src.examples.filter((e) => e.en !== card.back.example).slice(0, 2)
+  return (
+    <>
+      {more.length > 0 && (
+        <Row label="More">
+          {more.map((e, i) => (
+            <div key={i} className="mb-1">
+              <p>{e.en}</p>
+              {e.bn && <p className="text-sm text-muted">{e.bn}</p>}
+            </div>
+          ))}
+          <Badge tone="warn">AI-generated examples</Badge>
+        </Row>
+      )}
+      {src.grammar.length > 0 && (
+        <Row label="Grammar">
+          {src.grammar.slice(0, 2).map((g, i) => (
+            <p key={i} className="text-sm">
+              <b>{g.pattern}</b> — {g.explanation}
+            </p>
+          ))}
+        </Row>
+      )}
+      {(src.contextSentence || src.mediaTitle || src.sourceUrl) && (
+        <Row label="Source">
+          {src.contextSentence && src.contextSentence !== card.front && <p className="italic">“{src.contextSentence}”</p>}
+          <p className="text-xs text-muted">
+            <Badge tone="info">Original</Badge> {src.mediaTitle}
+            {src.timestampSec != null && <> · {formatTimestamp(src.timestampSec)}</>}
+            {src.sourceUrl && (
+              <>
+                {' · '}
+                <a href={src.sourceUrl} target="_blank" rel="noreferrer" className="text-info hover:underline">
+                  {src.sourceUrl.replace(/^https?:\/\/(www\.)?/, '').slice(0, 50)}
+                </a>
+              </>
+            )}
+          </p>
+        </Row>
+      )}
+    </>
   )
 }
 
@@ -236,12 +287,18 @@ function BrowseList({ cards, onDeleted }: { cards: Flashcard[]; onDeleted: () =>
   )
 }
 
-/** Flashcards section: the card review (unchanged) or Flash Sentence Practice. */
+/** Flashcards section: the revision dashboard, the card review, or Flash Sentence Practice. */
 export function FlashcardsView(): ReactNode {
-  const [mode, setMode] = useState<'review' | 'sentence'>('review')
+  const [mode, setMode] = useState<'dashboard' | 'review' | 'sentence'>(() => useIntents.getState().takeFlashcardsMode() ?? 'dashboard')
+  // A voice command ("start revision") can switch the tab while the section is open.
+  const requested = useIntents((s) => s.flashcardsMode)
+  useEffect(() => {
+    const m = requested && useIntents.getState().takeFlashcardsMode()
+    if (m) setMode(m)
+  }, [requested])
   const modeSwitch = (
     <div className="flex rounded-[10px] border border-line/80 bg-white/50 p-0.5" role="tablist" aria-label="Flashcard mode">
-      {(['review', 'sentence'] as const).map((m) => (
+      {(['dashboard', 'review', 'sentence'] as const).map((m) => (
         <button
           key={m}
           role="tab"
@@ -249,10 +306,11 @@ export function FlashcardsView(): ReactNode {
           onClick={() => setMode(m)}
           className={cn('motion-press h-6 rounded-[8px] px-2.5 text-xs font-medium', mode === m ? 'bg-accent text-accent-fg' : 'text-muted hover:text-fg')}
         >
-          {m === 'review' ? 'Review' : 'Sentence Practice'}
+          {m === 'dashboard' ? 'Revision' : m === 'review' ? 'Review' : 'Sentence Practice'}
         </button>
       ))}
     </div>
   )
+  if (mode === 'dashboard') return <RevisionDashboard modeSwitch={modeSwitch} onStart={() => setMode('review')} />
   return mode === 'review' ? <FlashcardReview modeSwitch={modeSwitch} /> : <FlashSentencePractice modeSwitch={modeSwitch} />
 }

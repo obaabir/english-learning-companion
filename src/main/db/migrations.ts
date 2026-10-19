@@ -1,4 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { randomUUID } from 'node:crypto'
+import { noteDedupeKey, sourceTypeOf, type NoteKind } from '@shared/types'
 
 export const SEED_PROMPTS: { name: string; instruction: string; isDefault?: boolean }[] = [
   {
@@ -230,6 +232,55 @@ const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
       );
       ALTER TABLE notes ADD COLUMN article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL;
       CREATE INDEX notes_article ON notes(article_id);
+    `)
+  },
+  // Learning records: a stable ID per item, its source (article / movie / YouTube / IELTS question),
+  // a key that detects repeated saves, and a marker for Google Docs appends whose result is unknown.
+  // Google Docs gets one destination per category; the old "movie" doc keeps receiving everything it
+  // received before until a different doc is chosen.
+  (db) => {
+    db.exec(`
+      ALTER TABLE notes ADD COLUMN uid TEXT;
+      ALTER TABLE notes ADD COLUMN source_type TEXT;
+      ALTER TABLE notes ADD COLUMN source_url TEXT;
+      ALTER TABLE notes ADD COLUMN ielts_ref TEXT;
+      ALTER TABLE notes ADD COLUMN dedupe_key TEXT;
+      ALTER TABLE notes ADD COLUMN gdoc_attempt_at TEXT;
+    `)
+    const rows = db
+      .prepare('SELECT n.id, n.kind, n.text, n.context_sentence, n.media_path, n.article_id, a.url AS article_url FROM notes n LEFT JOIN articles a ON a.id = n.article_id')
+      .all() as { id: number; kind: NoteKind; text: string; context_sentence: string | null; media_path: string | null; article_id: number | null; article_url: string | null }[]
+    const update = db.prepare('UPDATE notes SET uid = ?, source_type = ?, source_url = ?, dedupe_key = ? WHERE id = ?')
+    for (const r of rows) {
+      const n = { kind: r.kind, text: r.text, contextSentence: r.context_sentence, mediaPath: r.media_path, articleId: r.article_id }
+      const url = r.article_url ?? (r.media_path && /^https?:\/\//.test(r.media_path) ? r.media_path : null)
+      update.run(randomUUID(), sourceTypeOf(n), url, noteDedupeKey(n), r.id)
+    }
+    db.exec(`
+      CREATE UNIQUE INDEX notes_uid ON notes(uid);
+      CREATE INDEX notes_dedupe ON notes(dedupe_key);
+    `)
+    const movie = db.prepare("SELECT doc_id, title FROM doc_targets WHERE category = 'movie'").get() as { doc_id: string; title: string } | undefined
+    if (movie) {
+      const copy = db.prepare('INSERT OR IGNORE INTO doc_targets (category, doc_id, title) VALUES (?, ?, ?)')
+      for (const c of ['movie_vocab', 'article_vocab', 'idioms', 'grammar', 'general']) copy.run(c, movie.doc_id, movie.title)
+      db.exec("DELETE FROM doc_targets WHERE category = 'movie'")
+    }
+  },
+  // Revision: the simple Day 1 → Day 3 → Day 7 schedule replaces FSRS. Existing cards keep their next
+  // review date and history; their place on the ladder is taken from how often they were reviewed.
+  (db) => {
+    db.exec(`
+      ALTER TABLE flashcards ADD COLUMN srs_step INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE flashcards ADD COLUMN interval_days REAL NOT NULL DEFAULT 0;
+      ALTER TABLE flashcards ADD COLUMN ease REAL NOT NULL DEFAULT 1;
+      ALTER TABLE flashcards ADD COLUMN last_reviewed_at TEXT;
+      ALTER TABLE flashcards ADD COLUMN last_rating INTEGER;
+      UPDATE flashcards SET
+        srs_step = MIN(reps, 2),
+        interval_days = CASE WHEN reps = 0 THEN 0 WHEN reps = 1 THEN 2 WHEN reps = 2 THEN 4 ELSE 8 END,
+        last_reviewed_at = (SELECT MAX(reviewed_at) FROM flashcard_reviews r WHERE r.flashcard_id = flashcards.id),
+        last_rating = (SELECT rating FROM flashcard_reviews r WHERE r.flashcard_id = flashcards.id ORDER BY reviewed_at DESC, id DESC LIMIT 1);
     `)
   }
 ]

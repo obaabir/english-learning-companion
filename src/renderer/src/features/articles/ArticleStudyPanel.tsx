@@ -73,7 +73,7 @@ function SelectionView({ hasKey, explanation }: { hasKey: boolean; explanation: 
       setSavedId(note.id)
       useArticles.setState((s) => ({ historyVersion: s.historyVersion + 1 }))
       if (note.gdocError) toast('error', `Saved to notes, but Google Docs failed: ${note.gdocError}`)
-      else toast('success', 'Saved to notes')
+      else toast(note.duplicate ? 'info' : 'success', note.duplicate ? 'Already in your notes' : 'Saved to notes')
       void refreshDue()
       return note.id
     } catch (err) {

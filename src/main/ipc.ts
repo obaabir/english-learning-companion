@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import { app } from 'electron'
 import { EwService } from './ew/EwService'
 import type { Content } from '@google/genai'
@@ -10,6 +10,7 @@ import { deletePrompt, listPrompts, resolvePrompt, savePrompt, setDefaultPrompt 
 import {
   deleteNote,
   getNote,
+  findDuplicateNote,
   insertNote,
   listMediaTitles,
   listNoteMovies,
@@ -24,6 +25,7 @@ import {
   flashcardStats,
   insertFlashcard,
   listDueFlashcards,
+  revisionDashboard,
   listFlashcards,
   noteIdsWithoutFlashcards,
   reviewFlashcard
@@ -44,6 +46,9 @@ import type { GoogleService } from './google/GoogleService'
 import { createNoteSync } from './notesSync'
 import { getArticleDetail, listArticles, recordArticle, setArticleNote } from './db/repos/articles'
 import { buildArticleExplain } from './ai/article'
+import { recognizeWav, WakeListener } from './voice/recognizer'
+import { getWeather } from './voice/weather'
+import { COMMAND_PHRASES, COMMAND_TAILS, WAKE_PHRASES } from '@shared/voice'
 
 interface Services {
   db: Db
@@ -291,7 +296,11 @@ export function registerIpc(s: Services): void {
     }
   }
 
-  const { syncNote, syncMovie, syncPending } = createNoteSync(db, (docId, entry) => google.appendEntry(docId, entry))
+  const { syncNote, syncMovie, syncPending, overview } = createNoteSync(
+    db,
+    (docId, entry) => google.appendEntry(docId, entry),
+    (docId, text) => google.docContains(docId, text)
+  )
   /** On by default: Google Docs is the learner's storage once connected. */
   function autoSaveToDocs(): boolean {
     return getSetting(db, 'autoSaveToDocs') !== 'false'
@@ -305,7 +314,7 @@ export function registerIpc(s: Services): void {
   /** Creates the default notes documents in the learner's Google Drive if none are chosen yet. */
   const ensureDefaultDocs = async (): Promise<void> => {
     const defaults: [DocCategory, string][] = [
-      ['movie', 'English Learning Companion — Vocabulary & Sentences'],
+      ['movie_vocab', 'English Learning Companion — Vocabulary & Sentences'],
       ['structures', 'English Learning Companion — Sentence Structures']
     ]
     for (const [category, title] of defaults) {
@@ -317,6 +326,13 @@ export function registerIpc(s: Services): void {
 
   handle('notes:create', async (input) => {
     if (!input.text.trim()) throw new Error('Nothing to save.')
+    // The same item (same text, type, sentence and source) is not saved twice; a different
+    // sentence or source makes a separate record, so different meanings never merge.
+    const existing = findDuplicateNote(db, input)
+    if (existing) {
+      if (input.saveToDocs && !existing.gdocSyncedAt) void finishNote(existing.id, true)
+      return { ...existing, duplicate: true }
+    }
     // Save locally right away so the button never waits on Gemini or Google.
     const note = insertNote(db, input, null)
     const toDocs = input.saveToDocs || (autoSaveToDocs() && google.connected)
@@ -400,6 +416,49 @@ export function registerIpc(s: Services): void {
   handle('flashcards:list', () => listFlashcards(db))
   handle('flashcards:review', ({ id, rating }) => reviewFlashcard(db, id, rating))
   handle('flashcards:delete', (id) => deleteFlashcard(db, id))
+  handle('revision:dashboard', () => revisionDashboard(db))
+
+  // ---- voice (free first: Windows offline recognition; Gemini only as a fallback)
+  handle('voice:recognize', async ({ audioBase64, allowGemini }) => {
+    let offline: Awaited<ReturnType<typeof recognizeWav>> | null = null
+    let offlineError: unknown = null
+    try {
+      offline = await recognizeWav(audioBase64, { phrases: COMMAND_PHRASES, tails: COMMAND_TAILS, dictation: true })
+    } catch (err) {
+      offlineError = err
+    }
+    // A known command heard clearly: done, offline.
+    if (offline && offline.text && offline.grammar !== 'dictation' && offline.confidence >= 0.5) {
+      return { text: offline.text, engine: 'windows' as const, confidence: offline.confidence }
+    }
+    // Anything else (a question, unclear speech): Gemini writes it down, if allowed.
+    if (allowGemini && gemini.configured) {
+      const text = (await gemini.transcribeSpeech(audioBase64, 'audio/wav')).trim()
+      if (text) return { text, engine: 'gemini' as const, confidence: 1 }
+    }
+    if (offline?.text) return { text: offline.text, engine: 'windows' as const, confidence: offline.confidence }
+    if (offlineError) throw offlineError
+    return { text: '', engine: 'none' as const, confidence: 0 }
+  })
+  const wake = new WakeListener()
+  app.on('before-quit', () => wake.stop())
+  handle('voice:wake', ({ on }) => {
+    if (!on) wake.stop()
+    else if (!wake.running)
+      wake.start(
+        WAKE_PHRASES,
+        (h) => send(s.window(), 'voice:wakeHeard', { text: h.text, confidence: h.confidence }),
+        (state, message) => send(s.window(), 'voice:wakeState', { state, message })
+      )
+    return { running: wake.running }
+  })
+  // Chromium's network stack (system proxy, reliable DNS) rather than Node's fetch.
+  handle('voice:weather', ({ city }) => getWeather(city, (url, init) => net.fetch(String(url), { ...init, signal: AbortSignal.timeout(30_000) })))
+  handle('games:practice', async ({ mode, sentences }) => {
+    if (!gemini.configured) throw new Error('Add your Gemini API key in Settings to make practice sentences.')
+    if (!sentences.length) return []
+    return gemini.practiceItems(mode, sentences.slice(0, 10))
+  })
 
   // ---- Google
   handle('google:connect', async () => {
@@ -410,6 +469,7 @@ export function registerIpc(s: Services): void {
     return settings()
   })
   handle('google:syncPending', () => syncPending())
+  handle('google:syncOverview', () => overview())
 
   // ---- YouTube (Watch & Learn)
   const youtube = new YouTubeService(db, gemini, (p) => send(s.window(), 'youtube:transcriptProgress', p))

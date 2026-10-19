@@ -17,7 +17,7 @@ const kindLabel = (k: NoteKind): string => NOTE_KINDS.find((x) => x.value === k)
 const MODE_KINDS: Record<'structures' | 'vocabulary' | 'idioms', NoteKind[]> = {
   structures: ['structure'],
   vocabulary: ['word'],
-  idioms: ['idiom', 'phrase']
+  idioms: ['idiom', 'phrasal', 'collocation', 'phrase']
 }
 const MODE_TITLES = { all: 'My Notes', structures: 'Sentence Structures', vocabulary: 'English Vocabulary', idioms: 'Idioms and Expressions' }
 

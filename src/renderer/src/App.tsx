@@ -13,9 +13,11 @@ import { YouTubeView } from '@renderer/features/youtube/YouTubeView'
 import { PracticeRoom } from '@renderer/features/room/PracticeRoom'
 import { EnglishWorld } from '@renderer/features/englishworld/EnglishWorld'
 import { ArticlesView } from '@renderer/features/articles/ArticlesView'
+import { GamesView } from '@renderer/features/games/GamesView'
 import { useArticles } from '@renderer/features/articles/articleStore'
 import { Toasts } from '@renderer/components/Toasts'
 import { SelectionSaveMenu } from '@renderer/components/SelectionSaveMenu'
+import { VoiceAssistant } from '@renderer/features/voice/VoiceAssistant'
 
 export function App(): ReactNode {
   const page = useApp((s) => s.page)
@@ -99,10 +101,12 @@ export function App(): ReactNode {
             {page === 'flashcards' && <FlashcardsView />}
             {page === 'prompts' && <PromptManager />}
             {page === 'settings' && <SettingsView />}
-            {(page === 'games' || page === 'ielts' || page === 'errors') && <ComingSoon page={page} />}
+            {page === 'games' && <GamesView />}
+            {(page === 'ielts' || page === 'errors') && <ComingSoon page={page} />}
           </div>
         )}
         <SelectionSaveMenu />
+        <VoiceAssistant />
         <Toasts />
       </AppShell>
     </>

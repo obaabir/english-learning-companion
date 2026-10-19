@@ -332,6 +332,7 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
       markSaved(selection.key, note.id)
       if (note.gdocSyncedAt && !note.gdocError) setInDocs(true)
       if (note.gdocError) toast('error', `Saved to notes, but Google Docs failed: ${note.gdocError}`)
+      else if (note.duplicate) toast('info', 'Already in your notes')
       else toast('success', note.gdocSyncedAt ? 'Saved to notes and Google Docs' : 'Saved to notes')
       void refreshDue()
       return note.id

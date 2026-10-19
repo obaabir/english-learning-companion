@@ -150,7 +150,7 @@ describe('notes per movie and Google Docs saving', () => {
   it("sends notes to their own movie's doc, and repeated saves never duplicate", async () => {
     const { db, sync, appended, add } = setup()
     setMovieDoc(db, { mediaPath: 'A.mkv', mediaTitle: 'A', docId: 'doc-A', docTitle: 'A notes' })
-    setDocTarget(db, { category: 'movie', docId: 'doc-default', title: 'Movie English Notes' })
+    setDocTarget(db, { category: 'movie_vocab', docId: 'doc-default', title: 'Movie Vocabulary' })
     const a1 = add('A.mkv', 'first')
     add('A.mkv', 'second')
     const b1 = add('B.mkv', 'other movie')
@@ -194,7 +194,7 @@ describe('notes per movie and Google Docs saving', () => {
     expect(await sync.syncPending()).toEqual({ added: 0, error: null })
     expect(appended).toHaveLength(0)
 
-    setDocTarget(db, { category: 'movie', docId: 'doc-default', title: 'Vocabulary' })
+    setDocTarget(db, { category: 'movie_vocab', docId: 'doc-default', title: 'Vocabulary' })
     setFail('Network error')
     expect(await sync.syncPending()).toEqual({ added: 0, error: 'Network error' })
     setFail(null)

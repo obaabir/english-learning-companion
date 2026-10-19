@@ -1,13 +1,8 @@
 import type { ReactNode } from 'react'
-import { Gamepad2, GraduationCap, ListChecks } from 'lucide-react'
+import { GraduationCap, ListChecks } from 'lucide-react'
 import { EmptyState } from '@renderer/components/ui'
 
 const PAGES = {
-  games: {
-    icon: <Gamepad2 className="size-12" />,
-    title: 'Games are coming in Phase 2',
-    text: 'Sentence Builder, Choose the Correct Sentence, Matching, Sentence Completion and the Word Movement Puzzle, all built from your own saved notes, with Easy/Medium/Hard levels and grammar structure highlighting.'
-  },
   ielts: {
     icon: <GraduationCap className="size-12" />,
     title: 'IELTS Mode is coming in Phase 3',

@@ -1,27 +1,94 @@
-export type NoteKind = 'word' | 'phrase' | 'idiom' | 'sentence' | 'structure' | 'grammar' | 'general'
+export type NoteKind =
+  | 'word'
+  | 'phrase'
+  | 'idiom'
+  | 'phrasal'
+  | 'collocation'
+  | 'sentence'
+  | 'structure'
+  | 'grammar'
+  | 'general'
+  | 'ielts_error'
 
 export const NOTE_KINDS: { value: NoteKind; label: string }[] = [
   { value: 'sentence', label: 'Sentence' },
   { value: 'word', label: 'Word' },
   { value: 'phrase', label: 'Phrase' },
-  { value: 'idiom', label: 'Idiom / Phrasal verb' },
+  { value: 'idiom', label: 'Idiom' },
+  { value: 'phrasal', label: 'Phrasal verb' },
+  { value: 'collocation', label: 'Collocation' },
   { value: 'structure', label: 'Sentence structure' },
   { value: 'grammar', label: 'Grammar note' },
-  { value: 'general', label: 'General note' }
+  { value: 'general', label: 'General note' },
+  { value: 'ielts_error', label: 'IELTS error' }
 ]
 
 /** Google Doc destinations. Each category remembers its own doc. */
-export type DocCategory = 'movie' | 'structures' | 'ielts'
+export type DocCategory = 'article_vocab' | 'movie_vocab' | 'idioms' | 'structures' | 'grammar' | 'general' | 'ielts'
 
 export const DOC_CATEGORIES: { value: DocCategory; label: string }[] = [
-  { value: 'movie', label: 'Movie English Notes' },
-  { value: 'structures', label: 'Sentence Structure Notes' },
+  { value: 'article_vocab', label: 'Article Vocabulary' },
+  { value: 'movie_vocab', label: 'Movie Vocabulary' },
+  { value: 'idioms', label: 'Idioms and Expressions' },
+  { value: 'structures', label: 'Sentence Structures' },
+  { value: 'grammar', label: 'Grammar Notes' },
+  { value: 'general', label: 'General English Notes' },
   { value: 'ielts', label: 'IELTS Error Log' }
 ]
 
-/** Structure notes go to the structures doc; everything else to the movie doc. */
-export function docCategoryForKind(kind: NoteKind): DocCategory {
-  return kind === 'structure' ? 'structures' : 'movie'
+/** Where a saved item came from. */
+export type SourceType = 'article' | 'movie' | 'youtube' | 'ielts' | 'other'
+
+export function sourceTypeOf(n: { articleId?: number | null; mediaPath?: string | null; ieltsRef?: string | null }): SourceType {
+  if (n.articleId) return 'article'
+  if (n.ieltsRef) return 'ielts'
+  if (n.mediaPath) return /^https?:\/\//.test(n.mediaPath) ? 'youtube' : 'movie'
+  return 'other'
+}
+
+/**
+ * Which Google Doc category an item goes to: idioms/phrasal verbs, structures, grammar and IELTS
+ * errors have their own docs; words, collocations and sentences go to Article or Movie Vocabulary
+ * by where they came from, otherwise to General English Notes.
+ */
+export function docCategoryForNote(n: { kind: NoteKind; articleId?: number | null; mediaPath?: string | null; ieltsRef?: string | null }): DocCategory {
+  switch (n.kind) {
+    case 'idiom':
+    case 'phrasal':
+      return 'idioms'
+    case 'structure':
+      return 'structures'
+    case 'grammar':
+      return 'grammar'
+    case 'general':
+      return 'general'
+    case 'ielts_error':
+      return 'ielts'
+  }
+  const source = sourceTypeOf(n)
+  return source === 'article' ? 'article_vocab' : source === 'movie' || source === 'youtube' ? 'movie_vocab' : 'general'
+}
+
+/**
+ * Identity used to avoid saving the same item twice: same text, same type, same sentence and same
+ * source. The same word from a different sentence (possibly a different meaning) stays separate.
+ */
+export function noteDedupeKey(n: {
+  kind: NoteKind
+  text: string
+  contextSentence?: string | null
+  articleId?: number | null
+  mediaPath?: string | null
+  ieltsRef?: string | null
+}): string {
+  const norm = (s: string | null | undefined): string =>
+    (s ?? '')
+      .toLowerCase()
+      .replace(/[“”"‘’'`.,!?;:()[\]…—–-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  const source = n.articleId ? `article:${n.articleId}` : n.ieltsRef ? `ielts:${norm(n.ieltsRef)}` : n.mediaPath ? `media:${n.mediaPath}` : ''
+  return [n.kind, norm(n.text), norm(n.contextSentence), source].join('|')
 }
 
 export interface SubtitleLine {
@@ -97,6 +164,17 @@ export interface Note {
   userNote: string | null
   /** The article it was saved from (Articles section). */
   articleId?: number | null
+  /** Stable ID that never changes (also written into Google Docs to prevent duplicates). */
+  uid?: string
+  sourceType?: SourceType
+  /** Article address or YouTube link. */
+  sourceUrl?: string | null
+  /** The IELTS question an error belongs to. */
+  ieltsRef?: string | null
+  /** Google Docs: in the doc, waiting, or failed (with gdocError). */
+  syncStatus?: 'synced' | 'pending' | 'failed'
+  /** Set by notes:create when the same item was already saved (nothing new was added). */
+  duplicate?: boolean
   createdAt: string
 }
 
@@ -110,6 +188,7 @@ export interface NewNoteInput {
   timestampSec?: number | null
   promptId?: number | null
   articleId?: number | null
+  ieltsRef?: string | null
   /** Also append the note to the category's Google Doc. */
   saveToDocs?: boolean
 }
@@ -186,10 +265,61 @@ export interface Flashcard {
   reps: number
   lapses: number
   createdAt: string
+  /** Revision schedule (Day 1 → Day 3 → Day 7 → …). */
+  step?: number
+  intervalDays?: number
+  ease?: number
+  lastReviewedAt?: string | null
+  lastRating?: ReviewRating | null
+  mastered?: boolean
+  /** The saved item it was made from: original context and source (kept with the card). */
+  source?: FlashcardSource
 }
 
-/** Matches ts-fsrs Rating values for grades. */
+export interface FlashcardSource {
+  kind: NoteKind
+  /** The original sentence the item came from (source text, not AI). */
+  contextSentence: string | null
+  mediaTitle: string | null
+  sourceUrl: string | null
+  timestampSec: number | null
+  /** AI-generated examples and explanation from the saved note. */
+  examples: { en: string; bn: string }[]
+  grammar: { pattern: string; explanation: string }[]
+}
+
+/** Again, Difficult, Good, Easy. */
 export type ReviewRating = 1 | 2 | 3 | 4
+
+export const REVIEW_RATINGS: { rating: ReviewRating; label: string }[] = [
+  { rating: 1, label: 'Again' },
+  { rating: 2, label: 'Difficult' },
+  { rating: 3, label: 'Good' },
+  { rating: 4, label: 'Easy' }
+]
+
+/** Item types that get flashcards (general notes and IELTS errors don't). */
+export const FLASHCARD_KINDS: NoteKind[] = ['word', 'phrase', 'idiom', 'phrasal', 'collocation', 'sentence', 'structure', 'grammar']
+
+export interface RevisionDashboard {
+  counts: { dueToday: number; overdue: number; upcoming: number; recent: number; forgotten: number; mastered: number; total: number }
+  dueToday: Flashcard[]
+  overdue: Flashcard[]
+  upcoming: Flashcard[]
+  recent: Flashcard[]
+  forgotten: Flashcard[]
+  mastered: Flashcard[]
+}
+
+/** AI practice material made from saved sentences (the saved sentence itself stays the original). */
+export interface PracticeItem {
+  id: number
+  /** Choose the correct sentence: wrong versions of the original. Error correction: one wrong version. */
+  wrong: string[]
+  errors: { wrong: string; right: string; why: string }[]
+  why: string
+  structure: string
+}
 
 export interface FlashcardStats {
   total: number
@@ -374,4 +504,10 @@ export function formatTimestamp(sec: number | null | undefined): string {
   const s = total % 60
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${pad(h)}:${pad(m)}:${pad(s)}`
+}
+
+/** Google Docs sync overview (Settings → Google Docs). */
+export interface SyncOverview {
+  categories: { category: DocCategory; label: string; docTitle: string | null; synced: number; pending: number; failed: number }[]
+  failed: { id: number; text: string; kind: NoteKind; error: string; category: DocCategory }[]
 }

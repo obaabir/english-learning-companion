@@ -1,4 +1,7 @@
 import type {
+  SyncOverview,
+  RevisionDashboard,
+  PracticeItem,
   ChatFocus,
   AppSettings,
   Chat,
@@ -31,6 +34,7 @@ import type {
 import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from './fsp'
 import type { EwRequest } from './ew'
 import type { Article, ArticleDetail, ArticleInput, WebSelection } from './articles'
+import type { WeatherReport } from './voice'
 
 /**
  * Every renderer → main call. Keys are IPC channel names; the preload exposes a
@@ -140,6 +144,19 @@ export interface Api {
   'flashcards:list': () => Promise<Flashcard[]>
   'flashcards:review': (args: { id: number; rating: ReviewRating }) => Promise<Flashcard>
   'flashcards:delete': (id: number) => Promise<void>
+  /**
+   * Voice: a recorded clip (16 kHz WAV) is recognized offline by Windows first; if that doesn't
+   * match a command and allowGemini is set, Gemini writes down what was said.
+   */
+  'voice:recognize': (args: { audioBase64: string; allowGemini: boolean }) => Promise<{ text: string; engine: 'windows' | 'gemini' | 'none'; confidence: number }>
+  /** "Hey Jarvis": start/stop offline listening for the wake phrase (only when switched on). */
+  'voice:wake': (args: { on: boolean }) => Promise<{ running: boolean }>
+  /** Free weather from Open-Meteo (no key; needs internet). */
+  'voice:weather': (args: { city: string }) => Promise<WeatherReport>
+  /** Due today, overdue, upcoming, recently learned, frequently forgotten and mastered cards. */
+  'revision:dashboard': () => Promise<RevisionDashboard>
+  /** AI practice sentences (labelled AI-generated) for "Choose the correct sentence" and "Error correction". */
+  'games:practice': (args: { mode: 'choose' | 'error'; sentences: { id: number; text: string }[] }) => Promise<PracticeItem[]>
 
   'google:connect': () => Promise<AppSettings>
   'google:disconnect': () => Promise<AppSettings>
@@ -149,6 +166,8 @@ export interface Api {
   'google:openDoc': (docId: string) => Promise<void>
   /** Sends notes not yet in Google Docs (e.g. saved while offline). */
   'google:syncPending': () => Promise<{ added: number; error: string | null }>
+  /** Per-category counts (in the doc / waiting / failed) and the failed items with their errors. */
+  'google:syncOverview': () => Promise<SyncOverview>
 
   /** Checks a YouTube link (title, channel, thumbnail, any saved transcript). */
   'youtube:info': (link: string) => Promise<YouTubeVideo>
@@ -175,6 +194,9 @@ export interface Events {
   'ai:chunk': { requestId: string; delta: string }
   /** A note's background Google Docs save finished. */
   'notes:docsResult': { noteId: number; ok: boolean; error: string | null }
+  /** "Hey Jarvis" mode heard the wake phrase (alone, or with a command). */
+  'voice:wakeHeard': { text: string; confidence: number }
+  'voice:wakeState': { state: 'ready' | 'stopped' | 'error'; message?: string }
   /** Text sent from Chrome by the English Companion extension. */
   'articles:external': WebSelection
   'youtube:transcriptProgress': { videoId: string; transcript: TranscriptLine[]; chunksDone: number; totalChunks: number; complete: boolean }

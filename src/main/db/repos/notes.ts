@@ -1,4 +1,5 @@
-import type { NewNoteInput, Note, NoteData, NoteFilter, NoteKind } from '@shared/types'
+import { randomUUID } from 'node:crypto'
+import { noteDedupeKey, sourceTypeOf, type NewNoteInput, type Note, type NoteData, type NoteFilter, type NoteKind, type SourceType } from '@shared/types'
 import type { Db } from '../index'
 
 interface NoteRow {
@@ -17,6 +18,10 @@ interface NoteRow {
   gdoc_error: string | null
   user_note: string | null
   article_id?: number | null
+  uid?: string | null
+  source_type?: SourceType | null
+  source_url?: string | null
+  ielts_ref?: string | null
   created_at: string
 }
 
@@ -36,14 +41,36 @@ const toNote = (r: NoteRow): Note => ({
   gdocError: r.gdoc_error,
   userNote: r.user_note,
   articleId: r.article_id ?? null,
+  uid: r.uid ?? undefined,
+  sourceType: r.source_type ?? undefined,
+  sourceUrl: r.source_url ?? null,
+  ieltsRef: r.ielts_ref ?? null,
+  syncStatus: r.gdoc_synced_at ? 'synced' : r.gdoc_error ? 'failed' : 'pending',
   createdAt: r.created_at
 })
+
+/** Source address: the article's URL, or the YouTube link (movies are local files). */
+function sourceUrlFor(db: Db, input: NewNoteInput): string | null {
+  if (input.articleId) {
+    const a = db.prepare('SELECT url FROM articles WHERE id = ?').get(input.articleId) as { url: string } | undefined
+    if (a && /^https?:\/\//.test(a.url)) return a.url
+  }
+  return input.mediaPath && /^https?:\/\//.test(input.mediaPath) ? input.mediaPath : null
+}
+
+/** An already-saved record that is the same item (same text, type, sentence and source), if any. */
+export function findDuplicateNote(db: Db, input: NewNoteInput): Note | null {
+  const key = noteDedupeKey({ ...input, text: input.text.trim() })
+  const row = db.prepare('SELECT * FROM notes WHERE dedupe_key = ? ORDER BY id LIMIT 1').get(key) as NoteRow | undefined
+  return row ? toNote(row) : null
+}
 
 export function insertNote(db: Db, input: NewNoteInput, data: NoteData | null): Note {
   const res = db
     .prepare(
-      `INSERT INTO notes (kind, text, context_sentence, explanation_md, data_json, media_path, media_title, timestamp_sec, prompt_id, article_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO notes (kind, text, context_sentence, explanation_md, data_json, media_path, media_title, timestamp_sec, prompt_id, article_id,
+         uid, source_type, source_url, ielts_ref, dedupe_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.kind,
@@ -55,7 +82,12 @@ export function insertNote(db: Db, input: NewNoteInput, data: NoteData | null): 
       input.mediaTitle ?? null,
       input.timestampSec ?? null,
       input.promptId ?? null,
-      input.articleId ?? null
+      input.articleId ?? null,
+      randomUUID(),
+      sourceTypeOf(input),
+      sourceUrlFor(db, input),
+      input.ieltsRef ?? null,
+      noteDedupeKey({ ...input, text: input.text.trim() })
     )
   return getNote(db, Number(res.lastInsertRowid))!
 }
@@ -137,12 +169,24 @@ export function updateNoteKind(db: Db, id: number, kind: NoteKind): void {
 
 export function markNoteSynced(db: Db, id: number, docId: string): void {
   db.prepare(
-    "UPDATE notes SET gdoc_id = ?, gdoc_synced_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), gdoc_error = NULL WHERE id = ?"
+    "UPDATE notes SET gdoc_id = ?, gdoc_synced_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), gdoc_error = NULL, gdoc_attempt_at = NULL WHERE id = ?"
   ).run(docId, id)
 }
 
-export function markNoteSyncError(db: Db, id: number, error: string): void {
-  db.prepare('UPDATE notes SET gdoc_error = ? WHERE id = ?').run(error, id)
+/** keepAttempt: the append may have reached Google (e.g. the connection dropped), so check before retrying. */
+export function markNoteSyncError(db: Db, id: number, error: string, keepAttempt = false): void {
+  db.prepare(`UPDATE notes SET gdoc_error = ?${keepAttempt ? '' : ', gdoc_attempt_at = NULL'} WHERE id = ?`).run(error, id)
+}
+
+/** Recorded just before appending to a doc; cleared once the result is known. */
+export function markNoteSyncAttempt(db: Db, id: number, docId: string): void {
+  db.prepare("UPDATE notes SET gdoc_attempt_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), gdoc_id = ?, gdoc_synced_at = NULL WHERE id = ?").run(docId, id)
+}
+
+/** The doc of an append whose result is unknown, if any. */
+export function noteSyncAttempt(db: Db, id: number): { docId: string } | null {
+  const r = db.prepare('SELECT gdoc_attempt_at, gdoc_id FROM notes WHERE id = ?').get(id) as { gdoc_attempt_at: string | null; gdoc_id: string | null } | undefined
+  return r?.gdoc_attempt_at && r.gdoc_id ? { docId: r.gdoc_id } : null
 }
 
 export function deleteNote(db: Db, id: number): void {

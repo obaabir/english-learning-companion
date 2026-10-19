@@ -47,7 +47,7 @@ export interface ArticleDetail extends Article {
 /** Pasted articles have no web address; they get a local id instead. */
 export const PASTED_PREFIX = 'pasted:'
 
-export const VOCAB_KINDS: NoteKind[] = ['word', 'phrase', 'idiom']
+export const VOCAB_KINDS: NoteKind[] = ['word', 'phrase', 'idiom', 'phrasal', 'collocation']
 export const SENTENCE_KINDS: NoteKind[] = ['sentence', 'structure', 'grammar']
 
 export function isPasted(url: string): boolean {

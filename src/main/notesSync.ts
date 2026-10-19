@@ -1,10 +1,12 @@
-import { DOC_CATEGORIES, docCategoryForKind, type Note } from '@shared/types'
+import { DOC_CATEGORIES, docCategoryForNote, type DocCategory, type Note, type SyncOverview } from '@shared/types'
 import type { Db } from './db'
-import { getMovieDoc, getDocTarget } from './db/repos/settings'
-import { getNote, listNotes, markNoteSynced, markNoteSyncError, movieNoteIdsNotInDoc } from './db/repos/notes'
-import { noteToDocEntry, type DocEntry } from './google/docs'
+import { getMovieDoc, getDocTarget, listDocTargets } from './db/repos/settings'
+import { getNote, listNotes, markNoteSynced, markNoteSyncAttempt, markNoteSyncError, movieNoteIdsNotInDoc, noteSyncAttempt } from './db/repos/notes'
+import { noteToDocEntry, recordIdLine, type DocEntry } from './google/docs'
 
 export type AppendEntry = (docId: string, entry: DocEntry) => Promise<void>
+/** Whether a doc already contains a text (checks an append whose result was unknown). */
+export type DocContains = (docId: string, text: string) => Promise<boolean>
 
 export interface MovieSyncResult {
   added: number
@@ -13,38 +15,60 @@ export interface MovieSyncResult {
   error: string | null
 }
 
-/** Saving notes into Google Docs. appendEntry is the real Docs API in the app and a fake in tests. */
-export function createNoteSync(db: Db, appendEntry: AppendEntry) {
-  /** Where a note goes: its movie's own Google Doc if one is chosen, otherwise the category doc from Settings. */
+/**
+ * Saving learning records into Google Docs. The app's database stays the source of truth: Docs is a
+ * copy. appendEntry/docContains are the real Docs API in the app and fakes in tests.
+ */
+export function createNoteSync(db: Db, appendEntry: AppendEntry, docContains?: DocContains) {
+  /** Where a note goes: its movie's own Google Doc if one is chosen, otherwise its category's doc. */
   const docFor = (note: Note): { docId: string } | null => {
     const movieDoc = note.mediaPath ? getMovieDoc(db, note.mediaPath) : null
     if (movieDoc) return { docId: movieDoc.docId }
-    const target = getDocTarget(db, docCategoryForKind(note.kind))
+    const target = getDocTarget(db, docCategoryForNote(note))
     return target ? { docId: target.docId } : null
   }
 
+  /** Notes being sent right now: a second request for the same note waits for the first. */
+  const inFlight = new Map<number, Promise<Note>>()
+
   /**
-   * Appends a note to its Google Doc; records (rather than throws) failures.
-   * A note already in that doc is not appended again, so repeated saves never duplicate it.
+   * Appends a note to its Google Doc; records (rather than throws) failures. Success is recorded only
+   * after Google confirms the append. A note already in that doc is never appended again; if an
+   * earlier append's result is unknown (connection lost), the doc is checked for the record first.
    */
-  const syncNote = async (id: number): Promise<Note> => {
+  const syncNote = (id: number): Promise<Note> => {
+    const running = inFlight.get(id)
+    if (running) return running
+    const job = doSync(id).finally(() => inFlight.delete(id))
+    inFlight.set(id, job)
+    return job
+  }
+
+  const doSync = async (id: number): Promise<Note> => {
     const note = getNote(db, id)
     if (!note) throw new Error('Note not found.')
     const target = docFor(note)
     if (target && note.gdocSyncedAt && note.gdocId === target.docId) return note
     try {
       if (!target) {
-        const label = DOC_CATEGORIES.find((c) => c.value === docCategoryForKind(note.kind))?.label
+        const label = DOC_CATEGORIES.find((c) => c.value === docCategoryForNote(note))?.label
         throw new Error(
-          note.mediaPath
-            ? 'Choose a Google Doc for this movie in Notes (or a default doc in Settings → Google Docs).'
+          note.mediaPath && !note.articleId
+            ? `Choose a Google Doc for this movie in Notes (or for "${label}" in Settings → Google Docs).`
             : `Choose a Google Doc for "${label}" in Settings → Google Docs.`
         )
       }
+      const unknown = noteSyncAttempt(db, id)
+      if (unknown && unknown.docId === target.docId && note.uid && docContains && (await docContains(target.docId, recordIdLine(note.uid)))) {
+        markNoteSynced(db, id, target.docId) // the earlier append did arrive
+        return getNote(db, id)!
+      }
+      markNoteSyncAttempt(db, id, target.docId)
       await appendEntry(target.docId, noteToDocEntry(note))
       markNoteSynced(db, id, target.docId)
     } catch (err) {
-      markNoteSyncError(db, id, err instanceof Error ? err.message : String(err))
+      const uncertain = !!(err as { uncertain?: boolean }).uncertain
+      markNoteSyncError(db, id, err instanceof Error ? err.message : String(err), uncertain)
     }
     return getNote(db, id)!
   }
@@ -73,8 +97,8 @@ export function createNoteSync(db: Db, appendEntry: AppendEntry) {
   }
 
   /**
-   * Sends every note that isn't in Google Docs yet (oldest first), e.g. notes saved while
-   * offline or before Google was connected. Notes with no destination doc are skipped;
+   * Sends every note that isn't in Google Docs yet, including failed ones (oldest first), e.g. notes
+   * saved while offline or before Google was connected. Notes with no destination doc are skipped;
    * it stops at the first failure so an expired sign-in doesn't mark every note as failed.
    */
   const syncPending = async (): Promise<{ added: number; error: string | null }> => {
@@ -90,5 +114,25 @@ export function createNoteSync(db: Db, appendEntry: AppendEntry) {
     return { added, error: null }
   }
 
-  return { syncNote, syncMovie, syncPending }
+  /** Per category: how many records are in Google Docs, waiting, or failed, and the failed ones. */
+  const overview = (): SyncOverview => {
+    const docs = new Map(listDocTargets(db).map((t) => [t.category, t.title]))
+    const counts = new Map<DocCategory, { synced: number; pending: number; failed: number }>(DOC_CATEGORIES.map((c) => [c.value, { synced: 0, pending: 0, failed: 0 }]))
+    const failed: SyncOverview['failed'] = []
+    for (const n of listNotes(db)) {
+      const category = docCategoryForNote(n)
+      const c = counts.get(category)!
+      if (n.gdocSyncedAt) c.synced++
+      else if (n.gdocError) {
+        c.failed++
+        if (failed.length < 50) failed.push({ id: n.id, text: n.text, kind: n.kind, error: n.gdocError, category })
+      } else c.pending++
+    }
+    return {
+      categories: DOC_CATEGORIES.map((c) => ({ category: c.value, label: c.label, docTitle: docs.get(c.value) ?? null, ...counts.get(c.value)! })),
+      failed
+    }
+  }
+
+  return { syncNote, syncMovie, syncPending, overview }
 }

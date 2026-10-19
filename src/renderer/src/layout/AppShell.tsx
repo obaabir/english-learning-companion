@@ -19,6 +19,7 @@ import {
 import { useApp, type Page } from '@renderer/stores/app'
 import { cn } from '@renderer/lib/cn'
 import { YouTubeIcon } from '@renderer/features/youtube/YouTubeIcon'
+import { MicButton } from '@renderer/features/voice/VoiceAssistant'
 import { Globe2, RotateCw } from 'lucide-react'
 import { useState } from 'react'
 
@@ -44,7 +45,7 @@ const LIBRARY: NavItem[] = [
   { page: 'idioms', label: 'Idioms and Expressions', icon: <MessageSquareQuote className="size-4" /> },
   { page: 'structures', label: 'Sentence Structures', icon: <Puzzle className="size-4" /> },
   { page: 'flashcards', label: 'Flashcards', icon: <Layers className="size-4" /> },
-  { page: 'games', label: 'Games', icon: <Gamepad2 className="size-4" />, soon: true },
+  { page: 'games', label: 'Games', icon: <Gamepad2 className="size-4" /> },
   { page: 'ielts', label: 'IELTS', icon: <GraduationCap className="size-4" />, soon: true },
   { page: 'errors', label: 'Error Log', icon: <ListChecks className="size-4" />, soon: true }
 ]
@@ -102,6 +103,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
           En
         </div>
         <ReloadButton />
+        <MicButton />
         {MAIN.map((item) => (
           <NavButton key={item.page} item={item} active={page === item.page} />
         ))}

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { CheckCircle2, ExternalLink, FileText, FolderOpen, Settings } from 'lucide-react'
-import { DOC_CATEGORIES, type DocCategory, type PlayerKind } from '@shared/types'
+import { DOC_CATEGORIES, type DocCategory, type PlayerKind, type SyncOverview } from '@shared/types'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { DocPicker } from '@renderer/components/DocPicker'
@@ -19,6 +19,10 @@ export function SettingsView(): ReactNode {
   const [clientSecret, setClientSecret] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [picker, setPicker] = useState<DocCategory | null>(null)
+  // Google Docs sync state per category (the app's database is the source of truth).
+  const [sync, setSync] = useState<SyncOverview | null>(null)
+  const loadSync = (): void => void invoke('google:syncOverview').then(setSync).catch(() => undefined)
+  useEffect(loadSync, [settings?.docTargets])
 
   useEffect(() => {
     if (!settings) return
@@ -299,6 +303,7 @@ export function SettingsView(): ReactNode {
                       {target ? target.title : 'No document chosen'}
                       {c.value === 'ielts' && ' · used by IELTS mode (coming later)'}
                     </p>
+                    <SyncCounts counts={sync?.categories.find((x) => x.category === c.value)} />
                   </div>
                   {target && (
                     <Button size="sm" variant="ghost" icon={<ExternalLink className="size-3.5" />} onClick={() => void invoke('google:openDoc', target.docId)}>
@@ -333,13 +338,24 @@ export function SettingsView(): ReactNode {
                 onClick={() =>
                   void run('syncPending', async () => {
                     const r = await invoke('google:syncPending')
+                    loadSync()
                     if (r.error) toast('error', `Sent ${r.added} note(s), then Google Docs failed: ${r.error}`)
                     else toast('success', r.added ? `Sent ${r.added} waiting note(s) to Google Docs` : 'All notes are already in Google Docs')
                   })
                 }
               >
-                Send waiting notes now
+                Send waiting and failed notes now
               </Button>
+            )}
+            {!!sync?.failed.length && (
+              <div className="glass-inset space-y-1.5 rounded-xl px-3 py-2.5">
+                <p className="text-xs font-semibold text-danger">Not in Google Docs yet ({sync.failed.length}) — kept safely in the app</p>
+                {sync.failed.slice(0, 8).map((f) => (
+                  <p key={f.id} className="truncate text-xs text-muted" title={f.error}>
+                    <span className="text-fg">“{f.text}”</span> · {DOC_CATEGORIES.find((c) => c.value === f.category)?.label}: {f.error}
+                  </p>
+                ))}
+              </div>
             )}
           </Section>
         </div>
@@ -360,5 +376,17 @@ export function SettingsView(): ReactNode {
         />
       )}
     </div>
+  )
+}
+
+/** "12 in doc · 3 waiting · 1 failed" for one Google Docs category. */
+function SyncCounts({ counts }: { counts?: { synced: number; pending: number; failed: number } }): ReactNode {
+  if (!counts || counts.synced + counts.pending + counts.failed === 0) return null
+  return (
+    <p className="mt-0.5 text-[11px] text-muted">
+      {counts.synced} in doc
+      {counts.pending > 0 && <> · {counts.pending} waiting</>}
+      {counts.failed > 0 && <span className="text-danger"> · {counts.failed} failed</span>}
+    </p>
   )
 }

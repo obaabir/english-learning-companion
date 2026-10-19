@@ -1,5 +1,6 @@
 import { GoogleGenAI, MediaResolution, ThinkingLevel, type Content, type Schema, type ThinkingConfig } from '@google/genai'
-import type { ChatFocus, FlashcardBack, Note, NoteData, StudyContext } from '@shared/types'
+import type { ChatFocus, FlashcardBack, Note, NoteData, PracticeItem, StudyContext } from '@shared/types'
+import { PRACTICE_INSTRUCTION, PRACTICE_SCHEMA } from './practice'
 import {
   EXTRACT_INSTRUCTION,
   FLASHCARD_INSTRUCTION,
@@ -98,6 +99,9 @@ export function friendlyError(err: unknown): Error {
     return new Error('That Gemini model is not available. Pick another model in Settings.')
   }
   if (/quota|RESOURCE_EXHAUSTED|\b429\b/i.test(msg)) return new Error('Gemini rate limit or quota reached. Wait a moment and try again.')
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|network/i.test(msg)) {
+    return new Error("Couldn't reach Gemini. Check your internet connection, then try again.")
+  }
   const inner = apiErrorMessage(msg)
   if (inner) return new Error(`Gemini error: ${inner}`)
   return err instanceof Error ? err : new Error(msg)
@@ -370,6 +374,21 @@ export class GeminiService {
       const res = fast ? await this.withFastThinking(model, call) : await call(undefined)
       return JSON.parse(res.text ?? 'null') as T
     })
+  }
+
+  /** Wrong versions of saved sentences for games (they are AI-generated; the saved sentence stays the original). */
+  async practiceItems(mode: 'choose' | 'error', sentences: { id: number; text: string }[]): Promise<PracticeItem[]> {
+    const items = await this.json<PracticeItem[]>(PRACTICE_INSTRUCTION[mode], JSON.stringify(sentences), PRACTICE_SCHEMA, true)
+    const wanted = mode === 'choose' ? 3 : 1
+    return (items ?? [])
+      .filter((i) => sentences.some((s) => s.id === i.id))
+      .map((i) => {
+        const original = sentences.find((s) => s.id === i.id)!.text.trim().toLowerCase()
+        // Never offer a "wrong" sentence that is the original.
+        const wrong = (i.wrong ?? []).map((w) => w.trim()).filter((w) => w && w.toLowerCase() !== original).slice(0, wanted)
+        return { ...i, wrong }
+      })
+      .filter((i) => i.wrong.length === wanted)
   }
 
   /** Turns a saved selection (and optional explanation) into structured note fields. */
