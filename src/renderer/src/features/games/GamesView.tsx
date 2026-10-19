@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowLeft, Gamepad2, Sparkles } from 'lucide-react'
 import type { Note } from '@shared/types'
-import { buildBlanks, buildContextQuestions, buildGrammarQuestions, buildIdiomTasks, buildMeaningQuestions, GAME_MODES, type GameMode } from '@shared/games'
+import { asVocabNotes, buildBlanks, buildContextQuestions, buildGrammarQuestions, buildIdiomTasks, buildMeaningQuestions, GAME_MODES, type GameMode } from '@shared/games'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Badge, Button, PanelHeader } from '@renderer/components/ui'
@@ -21,7 +21,8 @@ export function GamesView(): ReactNode {
   }, [requested])
   const toastError = useApp((s) => s.toastError)
   useEffect(() => {
-    invoke('notes:list').then(setNotes).catch(toastError)
+    // The regular learning collection — the same items your flashcards use.
+    invoke('notes:list', { collection: 'regular' }).then(setNotes).catch(toastError)
   }, [toastError])
 
   const game = GAME_MODES.find((g) => g.mode === mode)
@@ -64,26 +65,28 @@ export function GamesView(): ReactNode {
 }
 
 function Game({ mode, notes }: { mode: GameMode; notes: Note[] }): ReactNode {
+  // Vocabulary games use each item's word/phrase to learn; sentence games use the original sentences.
+  const vocab = useMemo(() => asVocabNotes(notes), [notes])
   switch (mode) {
     case 'vocab-match':
-      return <VocabMatch notes={notes} />
+      return <VocabMatch notes={vocab} />
     case 'meaning-match':
-      return <ChoiceGame notes={notes} build={() => buildMeaningQuestions(notes)} emptyText="Save at least 4 words or idioms with meanings to play." />
+      return <ChoiceGame notes={vocab} build={() => buildMeaningQuestions(vocab)} emptyText="Save at least 4 words or idioms with meanings to play." />
     case 'ordering':
       return <OrderingGame notes={notes} />
     case 'blanks':
-      return <BlankGame notes={notes} build={() => buildBlanks(notes)} emptyText="Save at least 2 words together with the sentence they came from (select a word in a subtitle or article and save it)." />
+      return <BlankGame notes={vocab} build={() => buildBlanks(vocab)} emptyText="Save at least 2 words together with the sentence they came from (select a word in a subtitle or article and save it)." />
     case 'choose':
       return <ChooseGame notes={notes} />
     case 'idiom':
-      return <BlankGame notes={notes} build={() => buildIdiomTasks(notes)} emptyText="Save some idioms or phrasal verbs (two words or more) to play." />
+      return <BlankGame notes={vocab} build={() => buildIdiomTasks(vocab)} emptyText="Save some idioms or phrasal verbs (two words or more) to play." />
     case 'grammar':
       return <ChoiceGame notes={notes} build={() => buildGrammarQuestions(notes)} emptyText="Save a few sentences with Gemini set up (their grammar is saved with them), then play." />
     case 'error':
       return <ErrorGame notes={notes} />
     case 'write':
-      return <WriteGame notes={notes} />
+      return <WriteGame notes={[...vocab, ...notes.filter((n) => n.kind === 'structure' || n.kind === 'grammar')]} />
     case 'context':
-      return <ChoiceGame notes={notes} build={() => buildContextQuestions(notes)} emptyText="Save at least 4 words together with the sentence they came from (and their meanings) to play." />
+      return <ChoiceGame notes={vocab} build={() => buildContextQuestions(vocab)} emptyText="Save at least 4 words together with the sentence they came from (and their meanings) to play." />
   }
 }

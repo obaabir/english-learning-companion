@@ -92,6 +92,7 @@ export function FlashSentencePractice({
 
   // Your saved words (the flashcards made from Movie Mode / YouTube notes) become practice cards.
   useEffect(() => {
+    void moveImportedToCollection();
     void invoke("flashcards:list")
       .then((list) => {
         const { cards, setCards } = useFsp.getState();
@@ -1026,9 +1027,12 @@ function ImportView({ onDone }: { onDone: () => void }): ReactNode {
       updated,
     } = mergeCards(useFsp.getState().cards, parsed);
     useFsp.getState().setCards(merged);
-    toast(
-      "success",
-      `Imported ${added} new card${added === 1 ? "" : "s"}${updated ? `, updated ${updated}` : ""}`,
+    // The words go into your one vocabulary collection (Notes), so Flashcards and Games get them too.
+    void saveToCollection(parsed).then((saved) =>
+      toast(
+        "success",
+        `Imported ${added} new card${added === 1 ? "" : "s"}${updated ? `, updated ${updated}` : ""} · ${saved} added to your vocabulary collection (Notes, Flashcards, Games)`,
+      ),
     );
     setText("");
     onDone();
@@ -1037,12 +1041,14 @@ function ImportView({ onDone }: { onDone: () => void }): ReactNode {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-3">
       <div>
-        <h3 className="text-sm font-semibold">Import from your Google Doc</h3>
+        <h3 className="text-sm font-semibold">Import a word list</h3>
         <p className="text-xs text-muted">
-          Open your Doc, select all (Ctrl+A), copy (Ctrl+C) and paste it here.
-          Each line: <b>term | type | Bangla meaning | example sentence</b>.
+          Paste a list here (for example copied from your Google Doc: select
+          all, copy, paste). Each line: <b>term | type | Bangla meaning | example sentence</b>.
           Lines without “|” are skipped. A missing example is written by AI and
-          marked “AI example”.
+          marked “AI example”. The words are saved to your vocabulary collection
+          (Notes) — the same one Flashcards and Games use; the app never reads
+          your Google Docs directly.
         </p>
       </div>
       <Textarea
@@ -1068,4 +1074,48 @@ function ImportView({ onDone }: { onDone: () => void }): ReactNode {
       </div>
     </div>
   );
+}
+
+/** Saves imported words into the shared vocabulary collection (duplicates are recognised and skipped). */
+async function saveToCollection(cards: FspCard[]): Promise<number> {
+  let saved = 0;
+  for (const c of cards) {
+    try {
+      const note = await invoke("notes:create", {
+        kind: c.type,
+        text: c.term,
+        meaningBn: c.meaningBn || null,
+        // Only an example from your own list is kept as the original sentence (not one written by AI).
+        contextSentence: c.example && !c.aiExample ? c.example : null,
+        sourceType: "import",
+        mediaTitle: "Imported list",
+      });
+      if (!note.duplicate) saved++;
+    } catch {
+      // keep going with the rest
+    }
+  }
+  return saved;
+}
+
+const MIGRATED_KEY = "fsp:migrated.v1";
+
+/** One time: words imported earlier (kept only here) are also added to the shared collection. Nothing is deleted. */
+async function moveImportedToCollection(): Promise<void> {
+  let done: string[] = [];
+  try {
+    done = JSON.parse(localStorage.getItem(MIGRATED_KEY) ?? "[]") as string[];
+  } catch {
+    done = [];
+  }
+  const todo = useFsp
+    .getState()
+    .cards.filter((c) => c.source !== "saved" && !done.includes(c.id));
+  if (!todo.length) return;
+  await saveToCollection(todo);
+  try {
+    localStorage.setItem(MIGRATED_KEY, JSON.stringify([...done, ...todo.map((c) => c.id)]));
+  } catch {
+    // storage unavailable: duplicates are still recognised next time
+  }
 }

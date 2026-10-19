@@ -6,8 +6,9 @@ import { BRIDGE_PORT, type ArticleBlock, type WebSelection } from '@shared/artic
  * select in Chrome to this app. It listens on 127.0.0.1 only (never reachable from the network) and
  * accepts requests only from a browser extension: web pages are refused, because they send their own
  * Origin and can't add the x-elc-bridge header without a CORS check that this server rejects.
+ * Tests pass port 0 (any free port) so they never talk to a running copy of the app.
  */
-export function startChromeBridge(onSelection: (sel: WebSelection) => void): http.Server {
+export function startChromeBridge(onSelection: (sel: WebSelection) => void, port = BRIDGE_PORT): http.Server {
   const server = http.createServer((req, res) => {
     const origin = req.headers.origin
     const fromExtension = !origin || /^(chrome|moz)-extension:\/\//.test(origin)
@@ -50,8 +51,8 @@ export function startChromeBridge(onSelection: (sel: WebSelection) => void): htt
       }
     })
   })
-  server.on('error', (err) => console.warn(`Chrome link not started (port ${BRIDGE_PORT}):`, err.message))
-  server.listen(BRIDGE_PORT, '127.0.0.1')
+  server.on('error', (err) => console.warn(`Chrome link not started (port ${port}):`, err.message))
+  server.listen(port, '127.0.0.1')
   return server
 }
 

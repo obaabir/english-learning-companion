@@ -1,3 +1,4 @@
+import { normTerm } from '@shared/vocab'
 import { DOC_CATEGORIES, NOTE_KINDS, docCategoryForNote, formatTimestamp, type Note } from '@shared/types'
 
 export interface DocEntry {
@@ -42,6 +43,8 @@ export function noteToDocEntry(note: Note, now = new Date()): DocEntry {
     { label: 'Category', value: DOC_CATEGORIES.find((c) => c.value === docCategoryForNote(note))?.label ?? '' },
     { label: 'Type', value: NOTE_KINDS.find((k) => k.value === note.kind)?.label ?? note.kind }
   ]
+  // A sentence item names the word/phrase to learn from it (the same one its flashcard shows).
+  if (note.target && normTerm(note.target) !== normTerm(note.text)) fields.push({ label: 'Word to learn', value: note.target })
   if (note.contextSentence && note.contextSentence !== note.text) {
     fields.push({ label: 'Sentence', value: note.contextSentence })
   }

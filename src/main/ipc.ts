@@ -15,6 +15,7 @@ import {
   listMediaTitles,
   listNoteMovies,
   listNotes,
+  setNoteTarget,
   updateUserNote,
   updateNoteData,
   updateNoteKind
@@ -22,6 +23,7 @@ import {
 import { deleteChat, getChat, insertChat, insertMessage, listChats, listMessages } from './db/repos/chats'
 import {
   deleteFlashcard,
+  editFlashcard,
   flashcardStats,
   insertFlashcard,
   listDueFlashcards,
@@ -30,7 +32,7 @@ import {
   noteIdsWithoutFlashcards,
   reviewFlashcard
 } from './db/repos/flashcards'
-import { hasSecret, setSecret } from './secrets'
+import { getSecret, hasSecret, setSecret } from './secrets'
 import { detectMpvPath } from './mpv/MpvClient'
 import { detectVlcPath } from './player/VlcClient'
 import type { Player } from './player/Player'
@@ -48,6 +50,10 @@ import { getArticleDetail, listArticles, recordArticle, setArticleNote } from '.
 import { buildArticleExplain } from './ai/article'
 import { recognizeWav, WakeListener } from './voice/recognizer'
 import { getWeather } from './voice/weather'
+import { LiveVoice } from './voice/live'
+import { currentTime, weatherForVoice } from './voice/liveMainTools'
+import { initialTarget, isTargetLike, normTerm } from '@shared/vocab'
+import { ensureTargetAndCard, withFlashcard } from './learning'
 import { COMMAND_PHRASES, COMMAND_TAILS, WAKE_PHRASES } from '@shared/voice'
 
 interface Services {
@@ -286,8 +292,21 @@ export function registerIpc(s: Services): void {
   })
 
   // ---- notes
+  let extracting = 0
+  const waiting: (() => void)[] = []
   const extract = async (n: Pick<Note, 'kind' | 'text' | 'contextSentence' | 'explanationMd'>) => {
     if (!gemini.configured) return null
+    // At most two analyses at a time; the rest wait their turn.
+    if (extracting >= 2) await new Promise<void>((resolve) => waiting.push(resolve))
+    extracting++
+    try {
+      return await extractNow(n)
+    } finally {
+      extracting--
+      waiting.shift()?.()
+    }
+  }
+  const extractNow = async (n: Pick<Note, 'kind' | 'text' | 'contextSentence' | 'explanationMd'>) => {
     try {
       return await gemini.extractNoteData({ kind: n.kind, text: n.text, sentence: n.contextSentence, explanationMd: n.explanationMd })
     } catch (err) {
@@ -340,12 +359,21 @@ export function registerIpc(s: Services): void {
     return note
   })
 
-  /** Background: add Gemini's analysis to the note, then append it to Google Docs if wanted. */
+  /** Background: add Gemini's analysis to the note, its target and flashcard, then append it to Google Docs if wanted. */
   const finishNote = async (id: number, toDocs: boolean): Promise<void> => {
     const note = getNote(db, id)
     if (!note) return
     const data = await extract(note)
-    if (data) updateNoteData(db, id, data)
+    if (data) {
+      // Your own Bangla meaning (e.g. from an imported list) is kept.
+      if (note.data?.meaning_bn?.trim()) data.meaning_bn = note.data.meaning_bn
+      updateNoteData(db, id, data)
+    }
+    try {
+      ensureTargetAndCard(db, id)
+    } catch (err) {
+      console.warn('Could not make the flashcard:', err)
+    }
     if (!toDocs) return
     try {
       const synced = await syncNote(id)
@@ -354,8 +382,12 @@ export function registerIpc(s: Services): void {
       send(s.window(), 'notes:docsResult', { noteId: id, ok: false, error: err instanceof Error ? err.message : String(err) })
     }
   }
-  handle('notes:list', (filter) => listNotes(db, filter))
-  handle('notes:get', (id) => getNote(db, id))
+  // Each item comes with its flashcard (revision status): one record, seen the same everywhere.
+  handle('notes:list', (filter) => listNotes(db, filter).map((n) => withFlashcard(db, n)))
+  handle('notes:get', (id) => {
+    const n = getNote(db, id)
+    return n ? withFlashcard(db, n) : null
+  })
   handle('notes:updateKind', ({ id, kind }) => {
     updateNoteKind(db, id, kind)
     return getNote(db, id)!
@@ -393,6 +425,7 @@ export function registerIpc(s: Services): void {
     const ids = (args?.noteIds ?? [...pending]).filter((id) => pending.has(id))
     const notes = ids.map((id) => getNote(db, id)).filter((n): n is Note => !!n)
     let created = 0
+    let skipped = 0
     for (let i = 0; i < notes.length; i += 15) {
       const batch = notes.slice(i, i + 15)
       let generated = new Map<number, ReturnType<typeof fallbackFlashcard>>()
@@ -405,13 +438,24 @@ export function registerIpc(s: Services): void {
         }
       }
       for (const note of batch) {
-        const card = generated.get(note.id) ?? fallbackFlashcard(note)
-        insertFlashcard(db, note.id, card.front, card.back)
+        const g = generated.get(note.id)
+        // The front is the word/phrase to learn: the item's target, or the key expression Gemini chose
+        // (which then becomes the target). Never the whole sentence.
+        const target = note.target ?? (g && isTargetLike(g.front) && normTerm(g.front) !== normTerm(note.text) ? g.front : initialTarget(note))
+        if (!target) {
+          skipped++
+          continue
+        }
+        if (!note.target) setNoteTarget(db, note.id, target)
+        const fb = fallbackFlashcard({ ...note, target })
+        const back = g && normTerm(g.front) === normTerm(target) ? g.back : fb.back
+        insertFlashcard(db, note.id, target, back)
         created++
       }
     }
-    return { created }
+    return { created, skipped }
   })
+  handle('flashcards:edit', (edit) => editFlashcard(db, edit))
   handle('flashcards:due', (limit) => listDueFlashcards(db, limit))
   handle('flashcards:list', () => listFlashcards(db))
   handle('flashcards:review', ({ id, rating }) => reviewFlashcard(db, id, rating))
@@ -430,6 +474,17 @@ export function registerIpc(s: Services): void {
     // A known command heard clearly: done, offline.
     if (offline && offline.text && offline.grammar !== 'dictation' && offline.confidence >= 0.5) {
       return { text: offline.text, engine: 'windows' as const, confidence: offline.confidence }
+    }
+    // Windows' free-speech (dictation) grammar sometimes competes with the commands, so that nothing is
+    // recognized or a low-confidence jumble wins. Then try once more with the command phrases only, and
+    // accept only a clear match (a confident free-speech result is a real question and goes on below).
+    if (offline && (!offline.text || offline.confidence < (offline.grammar === 'dictation' ? 0.6 : 0.5))) {
+      try {
+        const commandsOnly = await recognizeWav(audioBase64, { phrases: COMMAND_PHRASES, tails: COMMAND_TAILS, dictation: false })
+        if (commandsOnly.text && commandsOnly.confidence >= 0.6) return { text: commandsOnly.text, engine: 'windows' as const, confidence: commandsOnly.confidence }
+      } catch {
+        // fall through to Gemini / nothing heard
+      }
     }
     // Anything else (a question, unclear speech): Gemini writes it down, if allowed.
     if (allowGemini && gemini.configured) {
@@ -454,6 +509,49 @@ export function registerIpc(s: Services): void {
   })
   // Chromium's network stack (system proxy, reliable DNS) rather than Node's fetch.
   handle('voice:weather', ({ city }) => getWeather(city, (url, init) => net.fetch(String(url), { ...init, signal: AbortSignal.timeout(30_000) })))
+
+  // ---- Voice Mode (Gemini Live): a real-time spoken conversation. The key stays in this process;
+  // the model can only use the validated app tools (shared/liveTools). Time comes from this
+  // computer's clock and weather from Open-Meteo, here; app actions run in the window.
+  let liveOpts = { city: '', timezone: '' }
+  let nextCallId = 1
+  const pendingCalls = new Map<number, (result: Record<string, unknown>) => void>()
+  const live = new LiveVoice({
+    getKey: () => getSecret(db, 'geminiApiKey'),
+    emit: (e) => send(s.window(), 'live:event', e),
+    runTool: async (name, args) => {
+      if (name === 'get_current_time') return currentTime(args.timezone, liveOpts.timezone)
+      if (name === 'get_weather')
+        return weatherForVoice(args.city, liveOpts.city, (city) => getWeather(city, (url, init) => net.fetch(String(url), { ...init, signal: AbortSignal.timeout(30_000) })))
+      const callId = nextCallId++
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          pendingCalls.delete(callId)
+          resolve({ ok: false, error: 'The app did not answer in time.' })
+        }, 20_000)
+        pendingCalls.set(callId, (result) => {
+          clearTimeout(timer)
+          resolve(result)
+        })
+        send(s.window(), 'live:toolCall', { callId, name, args })
+      })
+    },
+    // Tests only (never in the installed app): a local fake Live server.
+    baseUrl: !app.isPackaged ? process.env.ELC_LIVE_BASE_URL || undefined : undefined
+  })
+  app.on('before-quit', () => void live.end('quit'))
+  handle('live:start', ({ city, timezone }) => {
+    liveOpts = { city: String(city ?? '').slice(0, 80), timezone: String(timezone ?? '').slice(0, 60) }
+    return live.start()
+  })
+  handle('live:audio', (pcm) => live.sendAudio(pcm))
+  handle('live:pause', () => live.pauseAudio())
+  handle('live:text', (text) => live.sendText(text))
+  handle('live:end', () => live.end('user'))
+  handle('live:toolResult', ({ callId, result }) => {
+    pendingCalls.get(callId)?.(result && typeof result === 'object' ? result : { ok: false, error: 'No result.' })
+    pendingCalls.delete(callId)
+  })
   handle('games:practice', async ({ mode, sentences }) => {
     if (!gemini.configured) throw new Error('Add your Gemini API key in Settings to make practice sentences.')
     if (!sentences.length) return []

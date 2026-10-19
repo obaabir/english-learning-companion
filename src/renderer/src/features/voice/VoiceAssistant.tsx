@@ -9,6 +9,7 @@ import { Badge, Button, Input } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
 import { currentSelection, handleText, runAction } from './voiceActions'
 import { normalizeWav, recordCommand, speak, stopSpeaking, useVoice } from './voiceStore'
+import { voiceModeActive } from './voiceModeStore'
 
 let stopRecording: (() => void) | null = null
 
@@ -16,7 +17,19 @@ let stopRecording: (() => void) | null = null
  * Listens for ONE command: only after the mic button is pressed (or Alt+J, or "Hey Jarvis" when that
  * mode is on). Windows recognizes it offline; Gemini helps only if Windows can't match it.
  */
-export async function listenOnce(): Promise<void> {
+/** "Hey Jarvis" was heard on its own: answer "Yes?" so the user knows to go on. */
+async function acknowledgeWake(text: string, engine: 'windows' | 'gemini' | 'none'): Promise<void> {
+  const v = useVoice.getState()
+  v.patch({ open: true, heard: { text, engine }, reply: 'Yes?', status: 'success', clarify: null, confirm: null })
+  if (v.settings.speak) await speak('Yes?')
+  // A short pause so the end of "Yes?" isn't recorded as the start of the command.
+  await new Promise((r) => setTimeout(r, 250))
+}
+
+/** followUp: this listen comes right after "Hey Jarvis" (so the wake phrase alone won't start another). */
+export async function listenOnce(followUp = false): Promise<void> {
+  // Voice Mode is already listening: one microphone user at a time.
+  if (voiceModeActive()) return
   const v = useVoice.getState()
   if (v.status === 'listening') {
     stopRecording?.()
@@ -38,6 +51,11 @@ export async function listenOnce(): Promise<void> {
     useVoice.getState().patch({ status: 'processing' })
     const audioBase64 = normalizeWav(await recordingToWavBase64(blob))
     const r = await invoke('voice:recognize', { audioBase64, allowGemini: useVoice.getState().settings.gemini && !!useApp.getState().settings?.hasGeminiKey })
+    // Only "Hey Jarvis": reply and keep listening for the actual command (once).
+    if (!followUp && isWakeOnly(r.text)) {
+      await acknowledgeWake(r.text, r.engine)
+      return listenOnce(true)
+    }
     await handleText(r.text, r.engine, selection)
   } catch (err) {
     stopRecording = null
@@ -98,10 +116,9 @@ export function VoiceAssistant(): ReactNode {
   useEffect(() => {
     const offHeard = on('voice:wakeHeard', ({ text }) => {
       const s = useVoice.getState()
-      if (s.status === 'listening' || s.status === 'processing') return
+      if (s.status === 'listening' || s.status === 'processing' || voiceModeActive()) return
       if (isWakeOnly(text)) {
-        s.patch({ open: true })
-        void speak('Yes?').then(() => listenOnce())
+        void acknowledgeWake(text, 'windows').then(() => listenOnce(true))
       } else {
         s.patch({ open: true })
         void handleText(text, 'windows')

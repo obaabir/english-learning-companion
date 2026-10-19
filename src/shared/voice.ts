@@ -235,6 +235,8 @@ export const COMMAND_PHRASES: string[] = (() => {
   for (const g of GAMES) base.push(`start ${g.label.toLowerCase()}`)
   const all = new Set<string>()
   for (const b of base) for (const w of ['', 'hey jarvis ', 'jarvis ']) all.add(`${w}${b}`)
+  // The wake phrase alone ("Hey Jarvis") is also understood offline; it means "I'm about to ask".
+  for (const w of ['hey jarvis', 'jarvis', 'ok jarvis']) all.add(w)
   return [...all]
 })()
 

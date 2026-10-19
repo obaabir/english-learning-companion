@@ -1,4 +1,5 @@
 import type {
+  FlashcardEdit,
   SyncOverview,
   RevisionDashboard,
   PracticeItem,
@@ -35,6 +36,7 @@ import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesso
 import type { EwRequest } from './ew'
 import type { Article, ArticleDetail, ArticleInput, WebSelection } from './articles'
 import type { WeatherReport } from './voice'
+import type { LiveEvent } from './liveTools'
 
 /**
  * Every renderer → main call. Keys are IPC channel names; the preload exposes a
@@ -139,7 +141,10 @@ export interface Api {
   'notes:syncMovie': (mediaPath: string) => Promise<{ added: number; alreadyThere: number; failed: number; error: string | null }>
 
   'flashcards:stats': () => Promise<FlashcardStats>
-  'flashcards:generate': (args?: { noteIds?: number[] }) => Promise<{ created: number }>
+  /** skipped: sentences with no word/phrase to learn yet (a card never shows a whole sentence on its front). */
+  'flashcards:generate': (args?: { noteIds?: number[] }) => Promise<{ created: number; skipped?: number }>
+  /** Edit a card's English front (= the item's target word/phrase) and, optionally, its back. */
+  'flashcards:edit': (edit: FlashcardEdit) => Promise<Flashcard>
   'flashcards:due': (limit?: number) => Promise<Flashcard[]>
   'flashcards:list': () => Promise<Flashcard[]>
   'flashcards:review': (args: { id: number; rating: ReviewRating }) => Promise<Flashcard>
@@ -153,6 +158,17 @@ export interface Api {
   'voice:wake': (args: { on: boolean }) => Promise<{ running: boolean }>
   /** Free weather from Open-Meteo (no key; needs internet). */
   'voice:weather': (args: { city: string }) => Promise<WeatherReport>
+  /**
+   * Voice Mode (Gemini Live, real-time): start a spoken conversation (the key stays in the main
+   * process), stream microphone sound (16 kHz PCM, base64), pause it (mute), type into it, end it.
+   */
+  'live:start': (args: { city: string; timezone: string }) => Promise<{ model: string }>
+  'live:audio': (pcmBase64: string) => Promise<void>
+  'live:pause': () => Promise<void>
+  'live:text': (text: string) => Promise<void>
+  'live:end': () => Promise<void>
+  /** The window's answer to a validated app-tool call (see live:toolCall). */
+  'live:toolResult': (args: { callId: number; result: Record<string, unknown> }) => Promise<void>
   /** Due today, overdue, upcoming, recently learned, frequently forgotten and mastered cards. */
   'revision:dashboard': () => Promise<RevisionDashboard>
   /** AI practice sentences (labelled AI-generated) for "Choose the correct sentence" and "Error correction". */
@@ -197,6 +213,10 @@ export interface Events {
   /** "Hey Jarvis" mode heard the wake phrase (alone, or with a command). */
   'voice:wakeHeard': { text: string; confidence: number }
   'voice:wakeState': { state: 'ready' | 'stopped' | 'error'; message?: string }
+  /** Voice Mode: state, spoken audio, transcripts, interruptions, tool activity. */
+  'live:event': LiveEvent
+  /** Voice Mode asks the window to run one validated app tool (open a section, save the selection…). */
+  'live:toolCall': { callId: number; name: string; args: Record<string, string> }
   /** Text sent from Chrome by the English Companion extension. */
   'articles:external': WebSelection
   'youtube:transcriptProgress': { videoId: string; transcript: TranscriptLine[]; chunksDone: number; totalChunks: number; complete: boolean }

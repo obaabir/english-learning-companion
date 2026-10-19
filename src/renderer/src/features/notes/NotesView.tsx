@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { BookOpen, CheckCircle2, Clapperboard, ExternalLink, FilePlus2, FileText, Layers, RefreshCw, Save, Search, Trash2, TriangleAlert, UploadCloud } from 'lucide-react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import { NOTE_KINDS, formatTimestamp, type MovieNotesInfo, type Note, type NoteKind } from '@shared/types'
+import { FLASHCARD_KINDS, NOTE_KINDS, formatTimestamp, type MovieNotesInfo, type Note, type NoteKind } from '@shared/types'
+import { targetMeaning } from '@shared/vocab'
+import { asVocabNotes } from '@shared/games'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Badge, Button, EmptyState, Input, PanelHeader, Select, Textarea } from '@renderer/components/ui'
@@ -203,6 +205,7 @@ function NoteDetail({ note, onChanged }: { note: Note; onChanged: (n: Note | nul
             {note.contextSentence && note.contextSentence !== note.text && (
               <p className="mt-1.5 text-sm text-muted italic">“{note.contextSentence}”</p>
             )}
+            <ItemStatus note={note} />
             {(note.mediaTitle || note.timestampSec != null) && (
               <div className="mt-2 flex items-center gap-2 text-xs text-muted">
                 {note.mediaTitle && <span>{note.mediaTitle}</span>}
@@ -324,8 +327,8 @@ function NoteDetail({ note, onChanged }: { note: Note; onChanged: (n: Note | nul
           loading={busy === 'card'}
           onClick={() =>
             void run('card', async () => {
-              const { created } = await invoke('flashcards:generate', { noteIds: [note.id] })
-              toast(created ? 'success' : 'info', created ? 'Flashcard created' : 'This note already has a flashcard')
+              const { created, skipped } = await invoke('flashcards:generate', { noteIds: [note.id] })
+              toast(created ? 'success' : 'info', created ? 'Flashcard created' : skipped ? 'Select the word or phrase to learn in this sentence, then add it to flashcards.' : 'This note already has a flashcard')
               void refreshDue()
             })
           }
@@ -507,6 +510,34 @@ function MovieDocBar({
           onClose={() => setPicking(false)}
         />
       )}
+    </div>
+  )
+}
+
+/** One record: the word to learn (its flashcard front), its flashcard and revision status, and games. */
+function ItemStatus({ note }: { note: Note }): ReactNode {
+  const showTarget = !!note.target && note.target.trim().toLowerCase() !== note.text.trim().toLowerCase()
+  const card = note.flashcard
+  const meaning = targetMeaning(note)
+  const inGames = asVocabNotes([note]).length > 0 && !!meaning.bn
+  const due = card ? new Date(card.due) : null
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+      {showTarget && (
+        <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-accent" title="The word or phrase to learn from this item (its flashcard front)">
+          Word to learn: <b>{note.target}</b>
+        </span>
+      )}
+      {!note.target && FLASHCARD_KINDS.includes(note.kind) && <Badge tone="warn">No word chosen yet — no flashcard</Badge>}
+      {card ? (
+        <Badge tone="info">
+          {card.shared ? 'Flashcard (shared with the same word saved earlier)' : 'Flashcard'}
+          {card.mastered ? ' · mastered' : ` · next review ${due!.toLocaleDateString()}`}
+        </Badge>
+      ) : (
+        note.target && FLASHCARD_KINDS.includes(note.kind) && <Badge>No flashcard yet</Badge>
+      )}
+      <Badge>{inGames ? 'In vocabulary games' : 'Not in vocabulary games'}</Badge>
     </div>
   )
 }

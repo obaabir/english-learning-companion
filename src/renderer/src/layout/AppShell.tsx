@@ -20,6 +20,7 @@ import { useApp, type Page } from '@renderer/stores/app'
 import { cn } from '@renderer/lib/cn'
 import { YouTubeIcon } from '@renderer/features/youtube/YouTubeIcon'
 import { MicButton } from '@renderer/features/voice/VoiceAssistant'
+import { VoiceModeButton } from '@renderer/features/voice/VoiceMode'
 import { Globe2, RotateCw } from 'lucide-react'
 import { useState } from 'react'
 
@@ -104,6 +105,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
         </div>
         <ReloadButton />
         <MicButton />
+        <VoiceModeButton />
         {MAIN.map((item) => (
           <NavButton key={item.page} item={item} active={page === item.page} />
         ))}

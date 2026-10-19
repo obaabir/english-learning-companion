@@ -91,7 +91,7 @@ let audio: HTMLAudioElement | null = null
 export async function speak(text: string): Promise<void> {
   stopSpeaking()
   const synth = window.speechSynthesis
-  const voices = synth?.getVoices() ?? []
+  const voices = synth ? await voicesReady(synth) : []
   const voice = voices.find((v) => v.lang === 'en-US' && /zira|aria|jenny/i.test(v.name)) ?? voices.find((v) => v.lang.startsWith('en'))
   if (synth && voice) {
     await new Promise<void>((resolve) => {
@@ -107,11 +107,36 @@ export async function speak(text: string): Promise<void> {
   }
   try {
     const wav = await invoke('practice:voice', text)
-    audio = new Audio(`data:audio/wav;base64,${wav}`)
-    await audio.play()
+    const a = new Audio(`data:audio/wav;base64,${wav}`)
+    audio = a
+    // Resolve when the speech has finished (not when it starts), so listening never records it.
+    const ended = new Promise<void>((resolve) => {
+      a.onended = () => resolve()
+      a.onerror = () => resolve()
+      a.onpause = () => resolve()
+    })
+    await a.play()
+    await ended
   } catch {
     // speaking is optional
   }
+}
+
+/** The browser's voices load shortly after start; wait for them briefly instead of using the slower fallback. */
+async function voicesReady(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
+  if (synth.getVoices().length) return synth.getVoices()
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 600)
+    synth.addEventListener(
+      'voiceschanged',
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      { once: true }
+    )
+  })
+  return synth.getVoices()
 }
 
 export function stopSpeaking(): void {

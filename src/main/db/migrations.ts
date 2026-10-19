@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
-import { noteDedupeKey, sourceTypeOf, type NoteKind } from '@shared/types'
+import { noteDedupeKey, sourceTypeOf, type FlashcardBack, type NoteData, type NoteKind } from '@shared/types'
+import { initialTarget, isTargetLike, normTerm, targetMeaning } from '@shared/vocab'
 
 export const SEED_PROMPTS: { name: string; instruction: string; isDefault?: boolean }[] = [
   {
@@ -282,6 +283,39 @@ const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
         last_reviewed_at = (SELECT MAX(reviewed_at) FROM flashcard_reviews r WHERE r.flashcard_id = flashcards.id),
         last_rating = (SELECT rating FROM flashcard_reviews r WHERE r.flashcard_id = flashcards.id ORDER BY reviewed_at DESC, id DESC LIMIT 1);
     `)
+  },
+  // One learning collection: every item gets a designated TARGET (the word/phrase to learn; the
+  // flashcard front reads it), and a collection ('regular' now; the Vocabulary Book later stays
+  // separate). Existing cards keep a good front (it becomes the target); a card whose front is a
+  // whole sentence gets the key word/phrase from its analysis, and its old front and back are kept
+  // in legacy_* columns. Nothing is deleted.
+  (db) => {
+    db.exec(`
+      ALTER TABLE notes ADD COLUMN target TEXT;
+      ALTER TABLE notes ADD COLUMN collection TEXT NOT NULL DEFAULT 'regular';
+      CREATE INDEX notes_collection ON notes(collection);
+      ALTER TABLE flashcards ADD COLUMN legacy_front TEXT;
+      ALTER TABLE flashcards ADD COLUMN legacy_back_json TEXT;
+    `)
+    const notes = db.prepare('SELECT id, kind, text, data_json FROM notes').all() as { id: number; kind: NoteKind; text: string; data_json: string | null }[]
+    const cardOf = db.prepare('SELECT id, front, back_json FROM flashcards WHERE note_id = ? ORDER BY id LIMIT 1')
+    const setTarget = db.prepare('UPDATE notes SET target = ? WHERE id = ?')
+    const repair = db.prepare('UPDATE flashcards SET legacy_front = front, legacy_back_json = back_json, front = ?, back_json = ? WHERE id = ?')
+    for (const n of notes) {
+      const data = n.data_json ? (JSON.parse(n.data_json) as NoteData) : null
+      const card = cardOf.get(n.id) as { id: number; front: string; back_json: string } | undefined
+      const cardIsSentence = !!card && normTerm(card.front) === normTerm(n.text) && !isTargetLike(card.front)
+      const target = card && !cardIsSentence && isTargetLike(card.front) ? card.front.trim() : initialTarget({ kind: n.kind, text: n.text, data })
+      if (!target) continue
+      setTarget.run(target, n.id)
+      if (card && cardIsSentence && normTerm(target) !== normTerm(n.text)) {
+        const m = targetMeaning({ kind: n.kind, text: n.text, target, data })
+        const term = [...(data?.idioms_phrasal ?? []), ...(data?.vocabulary ?? [])].find((t) => normTerm(t.term) === normTerm(target))
+        const ex = data?.examples?.[0]
+        const back: FlashcardBack = { meaning_bn: m.bn, meaning_en: m.en, example: ex?.en ?? '', example_bn: ex?.bn ?? '', note: term?.note ?? '' }
+        repair.run(target, JSON.stringify(back), card.id)
+      }
+    }
   }
 ]
 

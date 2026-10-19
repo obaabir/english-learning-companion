@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { CheckCircle2, Layers, List, Sparkles, Trash2 } from 'lucide-react'
+import { CheckCircle2, Layers, List, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { formatTimestamp, type Flashcard, type FlashcardStats, type ReviewRating } from '@shared/types'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
@@ -8,6 +8,7 @@ import { cn } from '@renderer/lib/cn'
 import { FlashSentencePractice } from './fsp/FlashSentencePractice'
 import { RevisionDashboard } from './RevisionDashboard'
 import { useIntents } from '@renderer/stores/intents'
+import { FlashcardEditor } from './FlashcardEditor'
 
 const RATINGS: { rating: ReviewRating; label: string; key: string; className: string }[] = [
   { rating: 1, label: 'Again', key: '1', className: 'text-danger' },
@@ -25,6 +26,9 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
   const [browse, setBrowse] = useState(false)
   const [all, setAll] = useState<Flashcard[]>([])
   const [reviewedCount, setReviewedCount] = useState(0)
+  const [editing, setEditing] = useState(false)
+  // A different card never opens in the editor by accident.
+  useEffect(() => setEditing(false), [queue[0]?.id])
 
   const load = useCallback(async () => {
     try {
@@ -71,7 +75,7 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (browse || !card || (e.target as HTMLElement).closest('input, textarea, select')) return
+      if (browse || !card || editing || (e.target as HTMLElement).closest('input, textarea, select')) return
       if (e.key === ' ' || e.key === 'Enter') {
         e.preventDefault()
         setRevealed(true)
@@ -82,13 +86,13 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [browse, card, revealed, rate])
+  }, [browse, card, revealed, rate, editing])
 
   const generate = async (): Promise<void> => {
     setGenerating(true)
     try {
-      const { created } = await invoke('flashcards:generate')
-      toast('success', `Created ${created} flashcard${created === 1 ? '' : 's'}`)
+      const { created, skipped } = await invoke('flashcards:generate')
+      toast('success', `Created ${created} flashcard${created === 1 ? '' : 's'}${skipped ? ` · ${skipped} sentence${skipped === 1 ? '' : 's'} still need a word or phrase to learn (choose it in Notes)` : ''}`)
       await load()
     } catch (err) {
       toastError(err)
@@ -133,10 +137,37 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
           </p>
           <div
             key={card.id}
-            className="glass-elevated anim-fade-in w-full max-w-2xl cursor-pointer rounded-2xl p-8"
-            onClick={() => setRevealed(true)}
+            className={cn('glass-elevated anim-fade-in relative w-full max-w-2xl rounded-2xl p-8', !editing && 'cursor-pointer')}
+            onClick={() => !editing && setRevealed(true)}
           >
+            {editing ? (
+              <FlashcardEditor
+                card={card}
+                onCancel={() => setEditing(false)}
+                onSaved={(updated) => {
+                  setQueue((q) => [updated, ...q.slice(1)])
+                  setEditing(false)
+                  toast('success', 'Flashcard updated')
+                }}
+              />
+            ) : (
+              <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setEditing(true)
+              }}
+              className="motion-press absolute top-3 right-3 flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted hover:bg-white/55 hover:text-fg"
+              aria-label="Edit this flashcard"
+              title="Edit the English front (and meaning)"
+            >
+              <Pencil className="size-3.5" /> Edit
+            </button>
             <p className="text-center text-2xl leading-snug font-semibold">{card.front}</p>
+            {card.needsTarget && (
+              <p className="mt-2 text-center text-xs text-warn">This old card shows a whole sentence: press Edit and type the word or phrase to learn.</p>
+            )}
             {revealed ? (
               <div className="mt-6 space-y-3 border-t border-line pt-5 text-[15px]">
                 {card.back.meaning_bn || card.back.meaning_en ? (
@@ -162,6 +193,8 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
               </div>
             ) : (
               <p className="mt-6 text-center text-sm text-muted">Try to recall the meaning, then click or press Space</p>
+            )}
+              </>
             )}
           </div>
           {revealed ? (
@@ -194,6 +227,8 @@ function CardSource({ card }: { card: Flashcard }): ReactNode {
   const src = card.source
   if (!src) return null
   const more = src.examples.filter((e) => e.en !== card.back.example).slice(0, 2)
+  // The sentence the word/phrase came from (for an item saved as a whole sentence, that sentence).
+  const sentence = src.contextSentence ?? (src.kind === 'sentence' || src.kind === 'structure' ? (src.text ?? null) : null)
   return (
     <>
       {more.length > 0 && (
@@ -216,9 +251,10 @@ function CardSource({ card }: { card: Flashcard }): ReactNode {
           ))}
         </Row>
       )}
-      {(src.contextSentence || src.mediaTitle || src.sourceUrl) && (
+      {(sentence || src.mediaTitle || src.sourceUrl) && (
         <Row label="Source">
-          {src.contextSentence && src.contextSentence !== card.front && <p className="italic">“{src.contextSentence}”</p>}
+          {sentence && sentence !== card.front && <p className="italic">“{sentence}”</p>}
+          {sentence && src.sentenceMeaningBn && sentence !== card.front && <p className="text-sm text-muted">{src.sentenceMeaningBn}</p>}
           <p className="text-xs text-muted">
             <Badge tone="info">Original</Badge> {src.mediaTitle}
             {src.timestampSec != null && <> · {formatTimestamp(src.timestampSec)}</>}
@@ -248,6 +284,7 @@ function Row({ label, children }: { label: string; children: ReactNode }): React
 
 function BrowseList({ cards, onDeleted }: { cards: Flashcard[]; onDeleted: () => void }): ReactNode {
   const toastError = useApp((s) => s.toastError)
+  const [editing, setEditing] = useState<Flashcard | null>(null)
   if (!cards.length) return <EmptyState title="No flashcards yet" />
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -267,7 +304,8 @@ function BrowseList({ cards, onDeleted }: { cards: Flashcard[]; onDeleted: () =>
                 <td className="px-4 py-2.5 font-medium">{c.front}</td>
                 <td className="px-4 py-2.5 text-muted">{c.back.meaning_bn}</td>
                 <td className="px-4 py-2.5 whitespace-nowrap text-muted tabular-nums">{new Date(c.due).toLocaleDateString()}</td>
-                <td className="px-2">
+                <td className="px-2 whitespace-nowrap">
+                  <Button variant="ghost" size="sm" icon={<Pencil className="size-3.5" />} aria-label={`Edit flashcard ${c.front}`} title="Edit" onClick={() => setEditing(c)} />
                   <Button
                     variant="danger"
                     size="sm"
@@ -283,6 +321,21 @@ function BrowseList({ cards, onDeleted }: { cards: Flashcard[]; onDeleted: () =>
           </tbody>
         </table>
       </div>
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setEditing(null)}>
+          <div role="dialog" aria-label="Edit flashcard" className="glass-elevated anim-pop-in w-full max-w-xl rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <FlashcardEditor
+              card={editing}
+              onCancel={() => setEditing(null)}
+              onSaved={() => {
+                setEditing(null)
+                useApp.getState().toast('success', 'Flashcard updated')
+                onDeleted()
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

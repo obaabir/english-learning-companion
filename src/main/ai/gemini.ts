@@ -1,6 +1,7 @@
 import { GoogleGenAI, MediaResolution, ThinkingLevel, type Content, type Schema, type ThinkingConfig } from '@google/genai'
 import type { ChatFocus, FlashcardBack, Note, NoteData, PracticeItem, StudyContext } from '@shared/types'
 import { PRACTICE_INSTRUCTION, PRACTICE_SCHEMA } from './practice'
+import { targetMeaning } from '@shared/vocab'
 import {
   EXTRACT_INSTRUCTION,
   FLASHCARD_INSTRUCTION,
@@ -404,6 +405,7 @@ export class GeminiService {
       note_id: n.id,
       kind: n.kind,
       text: n.text,
+      target: n.target ?? undefined,
       sentence: n.contextSentence ?? undefined,
       meaning_bn: n.data?.meaning_bn,
       vocabulary: n.data?.vocabulary.map((v) => v.term),
@@ -655,11 +657,13 @@ export class GeminiService {
 /** Card built from note data alone, used when Gemini is unavailable. */
 export function fallbackFlashcard(note: Note): { front: string; back: FlashcardBack } {
   const ex = note.data?.examples[0]
+  // Front: the item's word/phrase to learn; the meaning is the meaning of that word/phrase.
+  const m = targetMeaning(note)
   return {
-    front: note.text,
+    front: note.target ?? note.text,
     back: {
-      meaning_bn: note.data?.meaning_bn ?? '',
-      meaning_en: note.data?.meaning_en ?? '',
+      meaning_bn: m.bn,
+      meaning_en: m.en,
       example: ex?.en ?? note.contextSentence ?? '',
       example_bn: ex?.bn ?? '',
       note: note.data?.grammar[0]?.explanation ?? ''

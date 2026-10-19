@@ -184,6 +184,8 @@ describe('upgrading an existing database', () => {
       ALTER TABLE notes DROP COLUMN ielts_ref; ALTER TABLE notes DROP COLUMN dedupe_key; ALTER TABLE notes DROP COLUMN gdoc_attempt_at;
       ALTER TABLE flashcards DROP COLUMN srs_step; ALTER TABLE flashcards DROP COLUMN interval_days; ALTER TABLE flashcards DROP COLUMN ease;
       ALTER TABLE flashcards DROP COLUMN last_reviewed_at; ALTER TABLE flashcards DROP COLUMN last_rating;
+      DROP INDEX notes_collection; ALTER TABLE notes DROP COLUMN target; ALTER TABLE notes DROP COLUMN collection;
+      ALTER TABLE flashcards DROP COLUMN legacy_front; ALTER TABLE flashcards DROP COLUMN legacy_back_json;
       INSERT INTO notes (kind, text, media_path, media_title) VALUES ('word', 'stubborn', 'https://youtu.be/v', 'Video');
       INSERT INTO notes (kind, text, media_path, media_title) VALUES ('word', 'stubborn', 'https://youtu.be/v', 'Video');
       INSERT INTO doc_targets (category, doc_id, title) VALUES ('movie', 'doc-old', 'Vocabulary & Sentences');
@@ -191,8 +193,8 @@ describe('upgrading an existing database', () => {
       INSERT INTO flashcards (note_id, front, back_json, card_json, due, state, reps, lapses) VALUES (1, 'stubborn', '{"meaning_bn":"","meaning_en":"","example":"","example_bn":"","note":""}', '{}', '2026-11-01T00:00:00.000Z', 2, 2, 0);
       INSERT INTO flashcard_reviews (flashcard_id, rating, reviewed_at) VALUES (1, 3, '2026-10-20T00:00:00.000Z');
     `)
-    // Back to before Phase 3 (Phase 3 and Phase 4 migrations run again).
-    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 2}`)
+    // Back to before Phase 3 (the Phase 3, Phase 4 and shared-vocabulary migrations run again).
+    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 3}`)
     raw.close()
 
     const db = openDatabase(file)

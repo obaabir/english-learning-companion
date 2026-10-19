@@ -37,9 +37,10 @@ export const DOC_CATEGORIES: { value: DocCategory; label: string }[] = [
 ]
 
 /** Where a saved item came from. */
-export type SourceType = 'article' | 'movie' | 'youtube' | 'ielts' | 'other'
+export type SourceType = 'article' | 'movie' | 'youtube' | 'ielts' | 'import' | 'other'
 
-export function sourceTypeOf(n: { articleId?: number | null; mediaPath?: string | null; ieltsRef?: string | null }): SourceType {
+export function sourceTypeOf(n: { articleId?: number | null; mediaPath?: string | null; ieltsRef?: string | null; sourceType?: SourceType | null }): SourceType {
+  if (n.sourceType === 'import') return 'import'
   if (n.articleId) return 'article'
   if (n.ieltsRef) return 'ielts'
   if (n.mediaPath) return /^https?:\/\//.test(n.mediaPath) ? 'youtube' : 'movie'
@@ -80,6 +81,7 @@ export function noteDedupeKey(n: {
   articleId?: number | null
   mediaPath?: string | null
   ieltsRef?: string | null
+  collection?: 'regular' | 'book'
 }): string {
   const norm = (s: string | null | undefined): string =>
     (s ?? '')
@@ -88,7 +90,9 @@ export function noteDedupeKey(n: {
       .replace(/\s+/g, ' ')
       .trim()
   const source = n.articleId ? `article:${n.articleId}` : n.ieltsRef ? `ielts:${norm(n.ieltsRef)}` : n.mediaPath ? `media:${n.mediaPath}` : ''
-  return [n.kind, norm(n.text), norm(n.contextSentence), source].join('|')
+  // Regular items keep their existing keys; another collection (Vocabulary Book) never matches them.
+  const key = [n.kind, norm(n.text), norm(n.contextSentence), source].join('|')
+  return n.collection && n.collection !== 'regular' ? `${n.collection}|${key}` : key
 }
 
 export interface SubtitleLine {
@@ -144,6 +148,10 @@ export interface NoteData {
   idioms_phrasal: TermItem[]
   grammar: { pattern: string; explanation: string }[]
   examples: { en: string; bn: string }[]
+  /** The key word/phrase to learn from the text (dictionary form) and its meaning. */
+  target_term?: string
+  target_meaning_bn?: string
+  target_meaning_en?: string
 }
 
 export interface Note {
@@ -175,6 +183,12 @@ export interface Note {
   syncStatus?: 'synced' | 'pending' | 'failed'
   /** Set by notes:create when the same item was already saved (nothing new was added). */
   duplicate?: boolean
+  /** The word or phrase to learn (the flashcard front). null = not chosen yet. */
+  target?: string | null
+  /** 'regular' learning collection, or the separate Vocabulary Book collection. */
+  collection?: 'regular' | 'book'
+  /** Its flashcard (revision status), when it has one; shared = the same word and meaning saved earlier already has this card. */
+  flashcard?: { id: number; due: string; reps: number; lapses: number; intervalDays: number; mastered: boolean; shared?: boolean } | null
   createdAt: string
 }
 
@@ -189,6 +203,12 @@ export interface NewNoteInput {
   promptId?: number | null
   articleId?: number | null
   ieltsRef?: string | null
+  /** Your own Bangla meaning (e.g. from an imported list); kept when Gemini analyses the item. */
+  meaningBn?: string | null
+  /** Where it came from, when it isn't an article/movie/YouTube/IELTS (e.g. an imported list). */
+  sourceType?: 'import'
+  /** Defaults to the regular learning collection. */
+  collection?: 'regular' | 'book'
   /** Also append the note to the category's Google Doc. */
   saveToDocs?: boolean
 }
@@ -200,6 +220,7 @@ export interface NoteFilter {
   mediaPath?: string
   mediaTitle?: string
   articleId?: number
+  collection?: 'regular' | 'book'
 }
 
 /** A movie with saved notes, and the Google Doc its notes go to (if chosen). */
@@ -274,6 +295,8 @@ export interface Flashcard {
   mastered?: boolean
   /** The saved item it was made from: original context and source (kept with the card). */
   source?: FlashcardSource
+  /** The item has no target word/phrase yet (an old sentence card): the front shows the sentence until one is chosen. */
+  needsTarget?: boolean
 }
 
 export interface FlashcardSource {
@@ -286,6 +309,20 @@ export interface FlashcardSource {
   /** AI-generated examples and explanation from the saved note. */
   examples: { en: string; bn: string }[]
   grammar: { pattern: string; explanation: string }[]
+  /** The saved text (for a sentence item: the whole original sentence). */
+  text?: string
+  /** Bangla translation of the original sentence (sentence items). */
+  sentenceMeaningBn?: string | null
+}
+
+/** Changes to a flashcard: the English front (the item's target word/phrase) and, optionally, its back. */
+export interface FlashcardEdit {
+  id: number
+  front?: string
+  meaningBn?: string
+  meaningEn?: string
+  example?: string
+  exampleBn?: string
 }
 
 /** Again, Difficult, Good, Easy. */

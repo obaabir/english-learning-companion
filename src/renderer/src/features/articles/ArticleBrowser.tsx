@@ -106,7 +106,9 @@ export function ArticleBrowser({ visible }: { visible: boolean }): ReactNode {
           </p>
         </div>
       )}
-      <webview ref={ref as never} src={startUrl} partition="persist:articles" className="min-h-0 w-full flex-1 bg-white" />
+      {/* Solid white behind the page: many sites leave parts of the page transparent, and the app's
+          "white" utility is a see-through tint in the dark theme, which made pages look dark. */}
+      <webview ref={ref as never} src={startUrl} partition="persist:articles" className="min-h-0 w-full flex-1 bg-[#fff]" />
     </div>
   )
 }

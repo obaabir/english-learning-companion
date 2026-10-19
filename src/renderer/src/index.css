@@ -444,6 +444,134 @@ body {
   opacity: 1;
   transform: none;
 }
+/* A hidden side panel's handle takes no space and can't be dragged. */
+.resize-handle.resize-handle-hidden {
+  width: 0;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Articles Reader: a conventional light reading surface (white page,
+ * dark text). Fixed colours on purpose, so it stays light and readable
+ * whatever the app's theme is.
+ * ------------------------------------------------------------------ */
+.reader-surface {
+  container-type: inline-size;
+  background: #ffffff;
+  color: #1d1d22;
+  color-scheme: light;
+  scrollbar-color: rgba(0, 0, 0, 0.28) transparent;
+}
+.reader-surface ::selection {
+  background: #ffd0df;
+  color: #1d1d22;
+}
+.reader-surface :focus-visible {
+  outline: 2px solid #0b57d0;
+}
+.reader-column {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+  font-size: 18px;
+  line-height: 1.75;
+}
+@container (max-width: 560px) {
+  .reader-column {
+    padding: 24px 18px 64px;
+    font-size: 17px;
+  }
+}
+.reader-column > header {
+  margin-bottom: 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e4e4ea;
+}
+.reader-column h1 {
+  margin: 10px 0 0;
+  font-size: 1.85em;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #111114;
+}
+.reader-column h2,
+.reader-column h3,
+.reader-column h4 {
+  margin: 1.8em 0 0.55em;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #111114;
+}
+.reader-column h2 {
+  font-size: 1.4em;
+}
+.reader-column h3 {
+  font-size: 1.2em;
+}
+.reader-column h4 {
+  font-size: 1.05em;
+}
+.reader-column p {
+  margin: 0 0 1.1em;
+}
+.reader-column ul {
+  margin: 0 0 1.1em;
+  padding-left: 1.4em;
+  list-style: disc;
+}
+.reader-column li {
+  margin: 0 0 0.45em;
+}
+.reader-column li::marker {
+  color: #b0204a;
+}
+.reader-column blockquote {
+  margin: 1.4em 0;
+  padding: 0.6em 1.1em;
+  border-left: 4px solid #c51d4a;
+  border-radius: 0 8px 8px 0;
+  background: #fbf5f7;
+  color: #3a3a42;
+  font-style: italic;
+}
+.reader-column pre {
+  margin: 1.2em 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid #e3e3ea;
+  border-radius: 8px;
+  background: #f5f5f8;
+  color: #1d1d22;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.reader-meta {
+  color: #5d5f68;
+}
+.reader-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 9px;
+  border: 1px solid #ead9df;
+  border-radius: 999px;
+  background: #f6f0f2;
+  color: #7a1d3a;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.reader-surface a,
+.reader-link {
+  color: #0b57d0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.reader-surface a:hover,
+.reader-link:hover {
+  color: #0842a0;
+}
 
 @keyframes caret-blink {
   50% { opacity: 0; }

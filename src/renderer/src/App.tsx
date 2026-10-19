@@ -18,6 +18,7 @@ import { useArticles } from '@renderer/features/articles/articleStore'
 import { Toasts } from '@renderer/components/Toasts'
 import { SelectionSaveMenu } from '@renderer/components/SelectionSaveMenu'
 import { VoiceAssistant } from '@renderer/features/voice/VoiceAssistant'
+import { VoiceModePanel } from '@renderer/features/voice/VoiceMode'
 
 export function App(): ReactNode {
   const page = useApp((s) => s.page)
@@ -107,6 +108,7 @@ export function App(): ReactNode {
         )}
         <SelectionSaveMenu />
         <VoiceAssistant />
+        <VoiceModePanel />
         <Toasts />
       </AppShell>
     </>

@@ -113,8 +113,11 @@ export async function runAction(action: VoiceAction, anySel: VoiceSelection | nu
     case 'flashcard': {
       if (!sel) return { ok: false, reply: NEEDS_SELECTION }
       const note = await invoke('notes:create', { kind: sel.suggestedKind, text: sel.text, ...(await sel.fields()) })
-      const { created } = await invoke('flashcards:generate', { noteIds: [note.id] })
+      const { created, skipped } = await invoke('flashcards:generate', { noteIds: [note.id] })
       void app.refreshDue()
+      if (!created && skipped) {
+        return { ok: false, reply: 'Select the word or phrase to learn in this sentence, then say it again.', say: 'Please select the word or phrase to learn first.' }
+      }
       return { ok: true, reply: created ? `Flashcard created for “${sel.text}”.` : `“${sel.text}” already has a flashcard.`, say: created ? 'Flashcard created.' : 'It already has a flashcard.' }
     }
 
@@ -210,8 +213,13 @@ export async function handleText(text: string, engine: 'windows' | 'gemini' | 't
   const voice = useVoice.getState()
   const trimmed = text.trim()
   voice.patch({ heard: { text: trimmed, engine }, reply: null, clarify: null, confirm: null })
-  if (!trimmed || isWakeOnly(trimmed)) {
+  if (!trimmed) {
     voice.patch({ status: 'error', reply: "I didn't catch that. Try again, or type the command below." })
+    return
+  }
+  // "Hey Jarvis" alone means the user is about to ask something: not an error.
+  if (isWakeOnly(trimmed)) {
+    voice.patch({ status: 'success', reply: 'Yes? I’m listening — say a command like “Open Articles”, or press the mic and ask.' })
     return
   }
   // The answer to "Which city?".

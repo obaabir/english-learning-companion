@@ -89,8 +89,8 @@ function SelectionView({ hasKey, explanation }: { hasKey: boolean; explanation: 
     if (id == null) return
     setBusy('card')
     try {
-      const { created } = await invoke('flashcards:generate', { noteIds: [id] })
-      toast(created ? 'success' : 'info', created ? 'Flashcard created' : 'This note already has a flashcard')
+      const { created, skipped } = await invoke('flashcards:generate', { noteIds: [id] })
+      toast(created ? 'success' : 'info', created ? 'Flashcard created' : skipped ? 'Select the word or phrase to learn in this sentence, then add it to flashcards.' : 'This note already has a flashcard')
       void refreshDue()
     } catch (err) {
       toastError(err)

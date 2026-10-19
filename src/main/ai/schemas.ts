@@ -35,10 +35,16 @@ export const NOTE_DATA_SCHEMA: Schema = {
         required: ['en', 'bn'],
         propertyOrdering: ['en', 'bn']
       }
-    }
+    },
+    target_term: {
+      type: Type.STRING,
+      description: 'The single most useful word, phrasal verb, idiom or collocation to learn, in dictionary form (e.g. "get out of something"). Never the whole sentence.'
+    },
+    target_meaning_bn: { type: Type.STRING, description: 'Natural Bangla meaning of target_term as used here' },
+    target_meaning_en: { type: Type.STRING, description: 'Short simple-English meaning of target_term' }
   },
-  required: ['meaning_bn', 'meaning_en', 'vocabulary', 'idioms_phrasal', 'grammar', 'examples'],
-  propertyOrdering: ['meaning_bn', 'meaning_en', 'vocabulary', 'idioms_phrasal', 'grammar', 'examples']
+  required: ['meaning_bn', 'meaning_en', 'vocabulary', 'idioms_phrasal', 'grammar', 'examples', 'target_term', 'target_meaning_bn', 'target_meaning_en'],
+  propertyOrdering: ['meaning_bn', 'meaning_en', 'vocabulary', 'idioms_phrasal', 'grammar', 'examples', 'target_term', 'target_meaning_bn', 'target_meaning_en']
 }
 
 export const FLASHCARDS_SCHEMA: Schema = {
@@ -131,12 +137,17 @@ Rules:
 - Only list vocabulary, idioms, phrasal verbs, collocations and grammar that actually appear in the text. Skip trivial words (a, the, is, to...).
 - If the text is a sentence pattern/template, describe the pattern in "grammar".
 - Give 3 new natural example sentences that reuse the key language, each with a Bangla translation.
-- Keep notes short and practical. Use an existing explanation if provided, but stay concise.`
+- Keep notes short and practical. Use an existing explanation if provided, but stay concise.
+- target_term: the ONE word, phrasal verb, idiom or collocation worth learning, in dictionary form
+  (e.g. "get out of something", "check something out", "resilient"). For a single word or short phrase,
+  use the text itself. For a sentence pattern, give the pattern. NEVER return the whole sentence.
+  target_meaning_bn / target_meaning_en: its meaning as used in this text.`
 
 export const FLASHCARD_INSTRUCTION = `You create flashcards for a Bangla-speaking English learner from their own saved notes.
 For each note produce exactly one card:
-- front: the most useful expression to memorise. For a single word/phrase/idiom/structure use it as-is (e.g. "to figure something out"). For a long sentence, use the key expression inside it; if the whole sentence is the point, use the sentence.
+- front: the word or phrase to learn — NEVER the whole sentence. If "target" is given, use it exactly. For a single word/phrase/idiom/structure use it as-is (e.g. "to figure something out"). For a sentence, use the key word, phrasal verb, idiom or collocation inside it, in dictionary form (e.g. "get out of something"); keep it to a few words.
 - meaning_bn: natural Bangla meaning; meaning_en: short simple-English meaning.
+- meaning_bn / meaning_en: the meaning of the FRONT (not of the whole sentence).
 - example: one new natural example sentence using the front; example_bn: its Bangla translation.
 - note: one short usage tip (register, common mistake, collocation).
 Return note_id unchanged.`

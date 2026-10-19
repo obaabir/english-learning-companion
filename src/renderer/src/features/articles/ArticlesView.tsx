@@ -1,6 +1,21 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Group, Panel, Separator } from 'react-resizable-panels'
-import { ArrowLeft, ArrowRight, BookOpenText, ClipboardPaste, Globe, History, Info, Puzzle, RotateCw, Search } from 'lucide-react'
+import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpenText,
+  ClipboardPaste,
+  Globe,
+  History,
+  Info,
+  PanelRightClose,
+  PanelRightOpen,
+  PanelTopClose,
+  PanelTopOpen,
+  Puzzle,
+  RotateCw,
+  Search
+} from 'lucide-react'
 import { domainOf, PASTED_PREFIX, suggestedArticleKind, type Article, type ArticleBlock, type ArticleInput } from '@shared/articles'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
@@ -14,6 +29,7 @@ import { ArticleBrowser } from './ArticleBrowser'
 import { ReaderView } from './ReaderView'
 import { ArticleHistory } from './ArticleHistory'
 import { ArticleStudyPanel } from './ArticleStudyPanel'
+import { useArticleLayout } from './articleLayout'
 
 /** Turns what was typed into an address: a URL as is, otherwise a DuckDuckGo search. */
 export function toAddress(input: string): string {
@@ -29,8 +45,25 @@ export function ArticlesView({ active }: { active: boolean }): ReactNode {
   const startUrl = useArticles((s) => s.startUrl)
   const reader = useArticles((s) => s.reader)
   const [readerLoading, setReaderLoading] = useState(false)
+  const showToolbar = useArticleLayout((s) => s.toolbar)
+  const showSide = useArticleLayout((s) => s.side)
+  const sideRef = usePanelRef()
+  // The layout the Articles area opened with (later changes go through the panel's own API).
+  const [initialSide] = useState(() => useArticleLayout.getState())
 
   useArticleSelectionScope()
+
+  // Show / hide the side panel. Collapsing keeps it mounted (its explanation and chat stay), and
+  // expanding brings back the width it had before.
+  useEffect(() => {
+    const p = sideRef.current
+    if (!p) return
+    if (showSide && p.isCollapsed()) {
+      p.expand()
+      const want = useArticleLayout.getState().sideSize
+      if (Math.abs(p.getSize().asPercentage - want) > 1) p.resize(`${want}%`)
+    } else if (!showSide && !p.isCollapsed()) p.collapse()
+  }, [showSide, sideRef])
 
   // Reader view asks the open page for its article text.
   useEffect(() => {
@@ -63,10 +96,12 @@ export function ArticlesView({ active }: { active: boolean }): ReactNode {
 
   return (
     <Group orientation="horizontal" className="h-full">
-      <Panel id="article" defaultSize="58" minSize={360}>
+      <Panel id="article" defaultSize={initialSide.side ? String(100 - initialSide.sideSize) : '100'} minSize={360}>
         <div className="glass-panel flex h-full min-w-0 flex-col overflow-hidden">
-          <Toolbar view={view} onReader={openReader} />
+          {showToolbar && <Toolbar view={view} onReader={openReader} />}
           <div className="relative min-h-0 flex-1">
+            {/* With the toolbar hidden, the two layout buttons float in the corner so they stay reachable. */}
+            {!showToolbar && <LayoutToggles floating />}
             <ArticleBrowser visible={active && view === 'browse'} />
             {view === 'browse' && !startUrl && <StartPage />}
             {view === 'reader' && (
@@ -82,8 +117,23 @@ export function ArticlesView({ active }: { active: boolean }): ReactNode {
           </div>
         </div>
       </Panel>
-      <Separator className="resize-handle" />
-      <Panel id="study" defaultSize="42" minSize={340}>
+      {/* The drag handle takes no space while the side panel is hidden. */}
+      <Separator className={cn('resize-handle', !showSide && 'resize-handle-hidden')} />
+      <Panel
+        id="study"
+        panelRef={sideRef}
+        collapsible
+        collapsedSize={0}
+        defaultSize={initialSide.side ? String(initialSide.sideSize) : '0'}
+        minSize={340}
+        onResize={(size) => {
+          const layout = useArticleLayout.getState()
+          if (size.asPercentage > 1) {
+            layout.setSideSize(size.asPercentage)
+            if (!layout.side) layout.setSide(true)
+          } else if (layout.side) layout.setSide(false) // collapsed by dragging the handle
+        }}
+      >
         <ArticleStudyPanel />
       </Panel>
     </Group>
@@ -118,6 +168,8 @@ function Toolbar({ view, onReader }: { view: ArticleView; onReader: () => void }
         {tab('history', 'History', <History className="size-4" />, () => openHistory(null))}
         <span className="flex-1" />
         <PasteButton />
+        <span className="mx-0.5 h-5 w-px bg-line" aria-hidden />
+        <LayoutToggles />
       </div>
       <form
         className="flex items-center gap-1"
@@ -134,6 +186,41 @@ function Toolbar({ view, onReader }: { view: ArticleView; onReader: () => void }
           <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Type a web address or search…" className="h-9 pl-8 text-sm" aria-label="Web address" />
         </div>
       </form>
+    </div>
+  )
+}
+
+/**
+ * Two small, separate buttons: show/hide the top toolbar, and show/hide the side panel. They sit in
+ * the toolbar, or float in the reading area's corner while the toolbar is hidden.
+ */
+function LayoutToggles({ floating = false }: { floating?: boolean }): ReactNode {
+  const toolbar = useArticleLayout((s) => s.toolbar)
+  const side = useArticleLayout((s) => s.side)
+  const { setToolbar, setSide } = useArticleLayout.getState()
+  const btn = (label: string, icon: ReactNode, expanded: boolean, onClick: () => void): ReactNode => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-expanded={expanded}
+      title={label}
+      className="motion-press flex size-7 items-center justify-center rounded-lg text-muted hover:bg-white/55 hover:text-fg"
+    >
+      {icon}
+    </button>
+  )
+  return (
+    <div
+      role="group"
+      aria-label="Articles layout"
+      className={cn(
+        'flex shrink-0 items-center gap-0.5',
+        floating && 'glass-elevated absolute top-2 right-2 z-30 rounded-xl p-0.5 opacity-75 transition-opacity hover:opacity-100 focus-within:opacity-100'
+      )}
+    >
+      {btn(toolbar ? 'Hide toolbar' : 'Show toolbar', toolbar ? <PanelTopClose className="size-4" /> : <PanelTopOpen className="size-4" />, toolbar, () => setToolbar(!toolbar))}
+      {btn(side ? 'Hide side panel' : 'Show side panel', side ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />, side, () => setSide(!side))}
     </div>
   )
 }
@@ -286,6 +373,7 @@ function useArticleSelectionScope(): void {
           void useArticles.getState().explain()
         },
         ask: (s) => {
+          useArticleLayout.getState().setSide(true)
           const st = useArticles.getState()
           const cur = st.selection
           if (s.fromAi) {

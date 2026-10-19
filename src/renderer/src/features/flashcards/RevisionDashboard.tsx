@@ -52,8 +52,8 @@ export function RevisionDashboard({ modeSwitch, onStart }: { modeSwitch: ReactNo
   const generate = async (): Promise<void> => {
     setGenerating(true)
     try {
-      const { created } = await invoke('flashcards:generate')
-      toast('success', `Created ${created} flashcard${created === 1 ? '' : 's'}`)
+      const { created, skipped } = await invoke('flashcards:generate')
+      toast('success', `Created ${created} flashcard${created === 1 ? '' : 's'}${skipped ? ` · ${skipped} sentence${skipped === 1 ? '' : 's'} still need a word or phrase to learn (choose it in Notes)` : ''}`)
       await load()
     } catch (err) {
       toastError(err)

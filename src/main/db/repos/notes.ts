@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { initialTarget } from '@shared/vocab'
 import { noteDedupeKey, sourceTypeOf, type NewNoteInput, type Note, type NoteData, type NoteFilter, type NoteKind, type SourceType } from '@shared/types'
 import type { Db } from '../index'
 
@@ -22,6 +23,8 @@ interface NoteRow {
   source_type?: SourceType | null
   source_url?: string | null
   ielts_ref?: string | null
+  target?: string | null
+  collection?: 'regular' | 'book' | null
   created_at: string
 }
 
@@ -45,6 +48,8 @@ const toNote = (r: NoteRow): Note => ({
   sourceType: r.source_type ?? undefined,
   sourceUrl: r.source_url ?? null,
   ieltsRef: r.ielts_ref ?? null,
+  target: r.target ?? null,
+  collection: r.collection ?? 'regular',
   syncStatus: r.gdoc_synced_at ? 'synced' : r.gdoc_error ? 'failed' : 'pending',
   createdAt: r.created_at
 })
@@ -66,18 +71,21 @@ export function findDuplicateNote(db: Db, input: NewNoteInput): Note | null {
 }
 
 export function insertNote(db: Db, input: NewNoteInput, data: NoteData | null): Note {
+  // Your own Bangla meaning (e.g. from an imported list) is the start of the item's analysis.
+  const seeded: NoteData | null =
+    data ?? (input.meaningBn?.trim() ? { meaning_bn: input.meaningBn.trim(), meaning_en: '', vocabulary: [], idioms_phrasal: [], grammar: [], examples: [] } : null)
   const res = db
     .prepare(
       `INSERT INTO notes (kind, text, context_sentence, explanation_md, data_json, media_path, media_title, timestamp_sec, prompt_id, article_id,
-         uid, source_type, source_url, ielts_ref, dedupe_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         uid, source_type, source_url, ielts_ref, dedupe_key, target, collection)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.kind,
       input.text.trim(),
       input.contextSentence ?? null,
       input.explanationMd ?? null,
-      data ? JSON.stringify(data) : null,
+      seeded ? JSON.stringify(seeded) : null,
       input.mediaPath ?? null,
       input.mediaTitle ?? null,
       input.timestampSec ?? null,
@@ -87,9 +95,17 @@ export function insertNote(db: Db, input: NewNoteInput, data: NoteData | null): 
       sourceTypeOf(input),
       sourceUrlFor(db, input),
       input.ieltsRef ?? null,
-      noteDedupeKey({ ...input, text: input.text.trim() })
+      noteDedupeKey({ ...input, text: input.text.trim() }),
+      // Words, phrases, idioms and short patterns are their own target; a sentence gets one from its analysis.
+      initialTarget({ kind: input.kind, text: input.text, data: seeded }),
+      input.collection ?? 'regular'
     )
   return getNote(db, Number(res.lastInsertRowid))!
+}
+
+/** Sets the word/phrase to learn (the flashcard front). */
+export function setNoteTarget(db: Db, id: number, target: string | null): void {
+  db.prepare('UPDATE notes SET target = ? WHERE id = ?').run(target?.trim() || null, id)
 }
 
 export function getNote(db: Db, id: number): Note | null {
@@ -108,6 +124,10 @@ export function listNotes(db: Db, filter: NoteFilter = {}): Note[] {
     const like = `%${filter.search.trim().replace(/[%_\\]/g, (c) => '\\' + c)}%`
     where.push("(text LIKE ? ESCAPE '\\' OR context_sentence LIKE ? ESCAPE '\\' OR data_json LIKE ? ESCAPE '\\')")
     params.push(like, like, like)
+  }
+  if (filter.collection) {
+    where.push("COALESCE(collection, 'regular') = ?")
+    params.push(filter.collection)
   }
   if (filter.articleId) {
     where.push('article_id = ?')

@@ -3,6 +3,7 @@ import type { WebviewTag } from 'electron'
 import { domainOf, isPasted, type ArticleBlock, type ArticleInput, type WebSelection } from '@shared/articles'
 import { errorMessage, invoke, newRequestId, streamCall } from '@renderer/lib/api'
 import { useChat } from '@renderer/stores/chat'
+import { useArticleLayout } from './articleLayout'
 
 export type ArticleView = 'browse' | 'reader' | 'history'
 
@@ -115,6 +116,8 @@ export const useArticles = create<ArticlesState>((set, get) => ({
     const sel = get().selection
     if (!sel) return
     const key = sel.key
+    // The explanation appears in the side panel, so show it if it was hidden.
+    useArticleLayout.getState().setSide(true)
     const put = (e: ArticleExplanation): void => set({ explanations: { ...get().explanations, [key]: e } })
     put({ text: '', status: 'streaming' })
     if (sel.url && sel.source !== 'ai') void get().ensureArticle(sel.url, sel.title ?? sel.url)

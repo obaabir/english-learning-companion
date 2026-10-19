@@ -1,4 +1,5 @@
 import type { Note, NoteKind } from './types'
+import { IDIOM_TERM_KINDS, isTargetLike, normTerm, originalSentence, targetMeaning, TERM_KINDS } from './vocab'
 
 /** The ten practice modes, all built from the learner's own saved notes. */
 export type GameMode = 'vocab-match' | 'meaning-match' | 'ordering' | 'blanks' | 'choose' | 'idiom' | 'grammar' | 'error' | 'write' | 'context'
@@ -30,6 +31,36 @@ const BASIC_PATTERNS = [
   'Modal verb (can / should / must)',
   'Comparative'
 ]
+
+/**
+ * The vocabulary view of the learning collection, for the vocabulary games: each item becomes its
+ * word/phrase to learn (the same target its flashcard shows) with that word's meaning and the original
+ * sentence as context. So a phrasal verb found inside a saved movie line is practised too. The same
+ * word with the same meaning appears once.
+ */
+export function asVocabNotes(notes: Note[]): Note[] {
+  const seen = new Set<string>()
+  const out: Note[] = []
+  for (const n of notes) {
+    if (!TERM_KINDS.includes(n.kind) && n.kind !== 'sentence') continue
+    const term = (n.target ?? (TERM_KINDS.includes(n.kind) ? n.text : null))?.trim()
+    if (!term || !isTargetLike(term)) continue
+    const m = targetMeaning({ ...n, target: term })
+    const key = `${normTerm(term)}|${normTerm(m.bn)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const fromIdioms = (n.data?.idioms_phrasal ?? []).some((t) => normTerm(t.term) === normTerm(term))
+    const kind: NoteKind = TERM_KINDS.includes(n.kind) ? n.kind : fromIdioms || IDIOM_TERM_KINDS.includes(n.kind) ? 'idiom' : words(term).length > 1 ? 'phrase' : 'word'
+    out.push({
+      ...n,
+      kind,
+      text: term,
+      contextSentence: originalSentence(n),
+      data: n.data ? { ...n.data, meaning_bn: m.bn, meaning_en: m.en } : null
+    })
+  }
+  return out
+}
 
 export type Rand = () => number
 
