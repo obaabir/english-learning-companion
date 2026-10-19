@@ -2,7 +2,7 @@ import { safeStorage } from 'electron'
 import type { Db } from './db'
 import { getSetting, setSetting } from './db/repos/settings'
 
-export type SecretName = 'geminiApiKey' | 'googleClientSecret' | 'googleRefreshToken'
+export type SecretName = 'geminiApiKey' | 'googleClientSecret' | 'googleRefreshToken' | 'googleRefreshTokenBackup'
 
 const key = (name: SecretName): string => `secret.${name}`
 
@@ -15,8 +15,13 @@ export function getSecret(db: Db, name: SecretName): string | null {
   if (!stored) return null
   const [scheme, payload] = stored.split(':', 2)
   const buf = Buffer.from(payload ?? '', 'base64')
-  if (scheme === 'enc') return safeStorage.decryptString(buf)
-  return buf.toString('utf8')
+  if (scheme !== 'enc') return buf.toString('utf8')
+  try {
+    return safeStorage.decryptString(buf)
+  } catch {
+    // Encrypted by another copy of the app data (a different key): treated as not set, so Settings asks again.
+    return null
+  }
 }
 
 export function setSecret(db: Db, name: SecretName, value: string | null): void {
@@ -31,5 +36,5 @@ export function setSecret(db: Db, name: SecretName, value: string | null): void 
 }
 
 export function hasSecret(db: Db, name: SecretName): boolean {
-  return getSetting(db, key(name)) !== null
+  return getSecret(db, name) !== null
 }

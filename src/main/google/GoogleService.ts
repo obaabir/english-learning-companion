@@ -69,7 +69,21 @@ export class GoogleService {
       const res = await this.auth().request<T>(opts)
       return res.data
     } catch (err) {
-      throw friendlyError(err)
+      const friendly = friendlyError(err)
+      // A second Google sign-in kept from an earlier copy of the data: if this one was revoked, use it.
+      const backup = /expired or was revoked/.test(friendly.message) ? getSecret(this.db, 'googleRefreshTokenBackup') : null
+      if (backup) {
+        setSecret(this.db, 'googleRefreshToken', backup)
+        setSecret(this.db, 'googleRefreshTokenBackup', null)
+        this.client = null
+        try {
+          const res = await this.auth().request<T>(opts)
+          return res.data
+        } catch (err2) {
+          throw friendlyError(err2)
+        }
+      }
+      throw friendly
     }
   }
 
@@ -77,6 +91,8 @@ export class GoogleService {
     const { clientId, clientSecret } = this.credentials()
     const { refreshToken } = await runOAuthFlow(clientId, clientSecret)
     setSecret(this.db, 'googleRefreshToken', refreshToken)
+    // A fresh sign-in: an older reserve sign-in is no longer needed.
+    setSecret(this.db, 'googleRefreshTokenBackup', null)
     this.client = null
     try {
       const about = await this.request<{ user?: { emailAddress?: string } }>({ url: `${DRIVE}/about`, params: { fields: 'user(emailAddress)' } })
@@ -94,6 +110,7 @@ export class GoogleService {
       // revoking is best-effort
     }
     setSecret(this.db, 'googleRefreshToken', null)
+    setSecret(this.db, 'googleRefreshTokenBackup', null)
     setSetting(this.db, 'googleAccount', null)
     this.client = null
   }

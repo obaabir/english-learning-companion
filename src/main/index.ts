@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, safeStorage, session, shell } from 'electron'
 import { join } from 'node:path'
 import { openDatabase } from './db'
 import { getSetting } from './db/repos/settings'
@@ -10,6 +10,7 @@ import { DEFAULT_MODEL, GeminiService } from './ai/gemini'
 import { GoogleService } from './google/GoogleService'
 import { registerIpc, send } from './ipc'
 import { startChromeBridge } from './bridge/chromeBridge'
+import { backupBeforeMerge, copyPrivateImages, findPrivateCopies, markPrivateCopyMerged, mergePrivateCopy, runningInPrivateSpace, type MergeReport } from './dataSplit'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -102,7 +103,55 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
-    const db = openDatabase(join(app.getPath('userData'), 'english-companion.db'))
+    const userData = app.getPath('userData')
+    // Started by another (packaged) program, e.g. the Claude app: Windows would save everything in that
+    // program's private folder and the words would seem to disappear later. Don't start like that.
+    if (runningInPrivateSpace(userData)) {
+      dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'English Learning Companion',
+        message: 'Please open English Learning Companion from its Desktop or Start-menu shortcut.',
+        detail:
+          'It was started by another program (for example the Claude app). Windows would then save your words in that program’s private folder, so they would seem to disappear later. Nothing was changed. Close this message and open the app from its shortcut.'
+      })
+      app.quit()
+      return
+    }
+    // Words saved earlier while the app ran inside another program's private folder: back up, then add them here.
+    const privateCopies = findPrivateCopies(userData)
+    let backupDir: string | null = null
+    if (privateCopies.length) {
+      try {
+        backupDir = backupBeforeMerge(userData, privateCopies)
+      } catch (err) {
+        console.warn('Backup before merging failed; not merging:', err)
+      }
+    }
+    const db = openDatabase(join(userData, 'english-companion.db'))
+    const merged: MergeReport[] = []
+    const mergeErrors: string[] = []
+    if (backupDir) {
+      const decrypt = (stored: string): string | null => {
+        try {
+          const [scheme, payload] = stored.split(':', 2)
+          const buf = Buffer.from(payload ?? '', 'base64')
+          return scheme === 'enc' ? safeStorage.decryptString(buf) : buf.toString('utf8')
+        } catch {
+          return null
+        }
+      }
+      const encrypt = (plain: string): string =>
+        safeStorage.isEncryptionAvailable() ? `enc:${safeStorage.encryptString(plain).toString('base64')}` : `raw:${Buffer.from(plain, 'utf8').toString('base64')}`
+      for (const dir of privateCopies) {
+        try {
+          merged.push(mergePrivateCopy(db, join(dir, 'english-companion.db'), decrypt, encrypt))
+          copyPrivateImages(dir, userData)
+          markPrivateCopyMerged(dir)
+        } catch (err) {
+          mergeErrors.push(err instanceof Error ? err.message : String(err))
+        }
+      }
+    }
     const players: Record<'vlc' | 'mpv', Player> = { vlc: new VlcClient(), mpv: new MpvClient() }
     const gemini = new GeminiService(
       () => getSecret(db, 'geminiApiKey'),
@@ -135,6 +184,26 @@ if (!app.requestSingleInstanceLock()) {
       }
     )
     createWindow()
+    if (merged.length || mergeErrors.length) {
+      const sum = (k: keyof Pick<MergeReport, 'notes' | 'flashcards' | 'vocabBookWords' | 'articles' | 'chats'>): number => merged.reduce((n, m) => n + m[k], 0)
+      const unreadable = [...new Set(merged.flatMap((m) => m.secretsUnreadable))]
+      mainWindow?.webContents.once('did-finish-load', () => {
+        void dialog.showMessageBox(mainWindow!, {
+          type: mergeErrors.length ? 'warning' : 'info',
+          title: 'English Learning Companion',
+          message: mergeErrors.length ? 'Some saved words could not be brought back automatically.' : 'Your words are all in one place again.',
+          detail: [
+            `Added from the copy that was saved while the app ran inside another program: ${sum('notes')} saved items, ${sum('flashcards')} flashcards, ${sum('vocabBookWords')} Vocabulary Book words, ${sum('articles')} articles, ${sum('chats')} chats.`,
+            merged.some((m) => m.googleBackupSaved) ? 'A second Google sign-in was found and kept in reserve: it is used automatically if the current one was revoked.' : '',
+            unreadable.length ? `Could not read from that copy (encrypted there): ${unreadable.join(', ')}. If something is missing, enter it again in Settings.` : '',
+            mergeErrors.length ? `Problem: ${mergeErrors.join('; ')}` : '',
+            `A backup of everything is in: ${backupDir}`
+          ]
+            .filter(Boolean)
+            .join('\n\n')
+        })
+      })
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
