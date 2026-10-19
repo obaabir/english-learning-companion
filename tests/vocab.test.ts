@@ -120,6 +120,7 @@ describe('upgrading: existing cards', () => {
     raw.exec(`
       DROP INDEX notes_collection; ALTER TABLE notes DROP COLUMN target; ALTER TABLE notes DROP COLUMN collection;
       ALTER TABLE flashcards DROP COLUMN legacy_front; ALTER TABLE flashcards DROP COLUMN legacy_back_json;
+      DROP TABLE vb_mistakes; DROP TABLE vb_reviews; DROP TABLE vb_items; DROP TABLE vb_sources; DROP TABLE vb_books;
     `)
     raw.prepare('INSERT INTO notes (kind, text, data_json) VALUES (?, ?, ?)').run('sentence', MOVIE_LINE, d)
     raw.prepare('INSERT INTO notes (kind, text) VALUES (?, ?)').run('idiom', 'break the ice')
@@ -127,7 +128,7 @@ describe('upgrading: existing cards', () => {
     const ins = raw.prepare("INSERT INTO flashcards (note_id, front, back_json, card_json, due, state, reps, lapses) VALUES (?, ?, ?, '{}', '2026-11-01T00:00:00.000Z', 2, 1, 0)")
     ins.run(1, MOVIE_LINE, back)
     ins.run(2, 'break the ice', back)
-    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`)
+    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 2}`)
     raw.close()
 
     const db = openDatabase(file)

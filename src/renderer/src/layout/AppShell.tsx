@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import {
   BookA,
+  BookMarked,
   BookOpen,
   ChevronRight,
   Clapperboard,
@@ -47,6 +48,7 @@ const LIBRARY: NavItem[] = [
   { page: 'structures', label: 'Sentence Structures', icon: <Puzzle className="size-4" /> },
   { page: 'flashcards', label: 'Flashcards', icon: <Layers className="size-4" /> },
   { page: 'games', label: 'Games', icon: <Gamepad2 className="size-4" /> },
+  { page: 'vocabbook', label: 'Vocabulary Book Learning', icon: <BookMarked className="size-4" /> },
   { page: 'ielts', label: 'IELTS', icon: <GraduationCap className="size-4" />, soon: true },
   { page: 'errors', label: 'Error Log', icon: <ListChecks className="size-4" />, soon: true }
 ]

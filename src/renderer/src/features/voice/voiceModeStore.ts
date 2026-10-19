@@ -269,7 +269,7 @@ function activityText(name: string, args: Record<string, string>, result?: Recor
 }
 
 // ---- app tools the voice model may use (already validated in the main process; checked again here)
-const SECTIONS: Record<string, { page: Page; label: string } | null> = {
+const SECTIONS: Record<string, { page: Page; label: string }> = {
   articles: { page: 'articles', label: 'Articles' },
   flashcards: { page: 'flashcards', label: 'Flashcards' },
   games: { page: 'games', label: 'Games' },
@@ -278,7 +278,7 @@ const SECTIONS: Record<string, { page: Page; label: string } | null> = {
   youtube: { page: 'youtube', label: 'YouTube' },
   practice: { page: 'room', label: 'Practice' },
   settings: { page: 'settings', label: 'Settings' },
-  vocabulary_book: null
+  vocabulary_book: { page: 'vocabbook', label: 'Vocabulary Book Learning' }
 }
 
 export async function runLiveTool(name: string, args: Record<string, string>): Promise<Record<string, unknown>> {
@@ -292,11 +292,6 @@ export async function runLiveTool(name: string, args: Record<string, string>): P
     case 'open_section': {
       const target = SECTIONS[args.section]
       if (target === undefined) return { ok: false, error: 'Unknown section.' }
-      if (target === null)
-        return {
-          ok: false,
-          error: 'The Vocabulary Book section is not built yet (it is planned for a later update). Offer to open Notes or English Vocabulary, where saved words are.'
-        }
       app.setPage(target.page)
       return { ok: true, message: `Opened ${target.label}.` }
     }

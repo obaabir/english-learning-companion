@@ -14,6 +14,7 @@ export type Page =
   | 'structures'
   | 'flashcards'
   | 'games'
+  | 'vocabbook'
   | 'ielts'
   | 'errors'
   | 'prompts'

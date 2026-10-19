@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import { app } from 'electron'
+import { join } from 'node:path'
 import { EwService } from './ew/EwService'
 import type { Content } from '@google/genai'
 import type { Api, ApiChannel, EventChannel, Events } from '@shared/ipcContract'
@@ -54,6 +55,21 @@ import { LiveVoice } from './voice/live'
 import { currentTime, weatherForVoice } from './voice/liveMainTools'
 import { initialTarget, isTargetLike, normTerm } from '@shared/vocab'
 import { ensureTargetAndCard, withFlashcard } from './learning'
+import { createVocabBook, VB_DOC_DEFAULT_TITLE } from './vocabBook/service'
+import {
+  createBook,
+  dashboard as vbDashboard,
+  editItem as editVbItem,
+  getItem as getVbItem,
+  listBooks,
+  listItems,
+  listMistakes as listVbMistakes,
+  listSources,
+  mistakeReview,
+  recordAnswer,
+  sessionFor as vbSession,
+  updateBook
+} from './db/repos/vocabBook'
 import { COMMAND_PHRASES, COMMAND_TAILS, WAKE_PHRASES } from '@shared/voice'
 
 interface Services {
@@ -461,6 +477,54 @@ export function registerIpc(s: Services): void {
   handle('flashcards:review', ({ id, rating }) => reviewFlashcard(db, id, rating))
   handle('flashcards:delete', (id) => deleteFlashcard(db, id))
   handle('revision:dashboard', () => revisionDashboard(db))
+
+  // ---- Vocabulary Book Learning (separate module: own tables, deck, schedule, mistakes, Google Doc)
+  const vb = createVocabBook(db, {
+    gemini,
+    google,
+    imagesDir: join(app.getPath('userData'), 'vocab-book', 'images'),
+    autoSync: () => google.connected && autoSaveToDocs(),
+    onChange: (bookId) => send(s.window(), 'vb:changed', { bookId })
+  })
+  handle('vb:books', () => listBooks(db))
+  handle('vb:createBook', ({ title, dailyNew }) => createBook(db, title, dailyNew))
+  handle('vb:updateBook', ({ id, ...patch }) => updateBook(db, id, patch))
+  handle('vb:items', (bookId) => listItems(db, bookId))
+  handle('vb:sources', (bookId) => listSources(db, bookId))
+  handle('vb:sourceImage', (file) => vb.sourceImage(file))
+  handle('vb:extractImage', (args) => vb.extractImage(args))
+  handle('vb:extractText', (args) => vb.extractText(args))
+  handle('vb:import', (args) => {
+    const r = vb.importReviewed(args)
+    return { added: r.added.length, skipped: r.skipped, firstSeq: r.added[0]?.seq ?? null, lastSeq: r.added.at(-1)?.seq ?? null }
+  })
+  handle('vb:enrich', (ids) => vb.enrich(ids))
+  handle('vb:editItem', (edit) => editVbItem(db, edit))
+  handle('vb:session', (bookId) => vbSession(db, bookId))
+  handle('vb:mistakeReview', (bookId) => mistakeReview(db, bookId))
+  handle('vb:answer', (answer) => recordAnswer(db, answer))
+  handle('vb:checkSentence', async ({ itemId, sentence }) => {
+    const item = getVbItem(db, itemId)
+    if (!item) throw new Error('Word not found.')
+    if (!gemini.configured) return { available: false, correct: false, corrected: '', explanation: 'Add your Gemini key in Settings to have sentences checked.' }
+    const r = await gemini.fspCheck({
+      term: item.term,
+      type: item.term.includes(' ') ? 'phrase' : 'word',
+      meaningBn: item.meaningBn,
+      sentence,
+      challenge: `Use "${item.term}" correctly with this meaning: ${item.definitionEn || item.meaningBn}`,
+      context: null
+    })
+    const correct = r.status === 'correct' && r.usesTargetCorrectly
+    const explanation = [r.errors.map((e) => `${e.wrongText} → ${e.fix}: ${e.ruleBangla}`).join('\n'), r.optionalTip].filter(Boolean).join('\n')
+    return { available: true, correct, corrected: r.corrected, explanation }
+  })
+  handle('vb:dashboard', (bookId) => vbDashboard(db, bookId))
+  handle('vb:mistakes', ({ bookId, itemId }) => listVbMistakes(db, bookId, itemId))
+  handle('vb:doc', () => vb.getDoc())
+  handle('vb:setDoc', (doc) => vb.setDoc(doc))
+  handle('vb:createDoc', async (title) => vb.setDoc(await google.createDoc(title.trim() || VB_DOC_DEFAULT_TITLE)))
+  handle('vb:sync', (bookId) => vb.syncBook(bookId))
 
   // ---- voice (free first: Windows offline recognition; Gemini only as a fallback)
   handle('voice:recognize', async ({ audioBase64, allowGemini }) => {

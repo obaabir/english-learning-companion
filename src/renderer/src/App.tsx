@@ -14,6 +14,7 @@ import { PracticeRoom } from '@renderer/features/room/PracticeRoom'
 import { EnglishWorld } from '@renderer/features/englishworld/EnglishWorld'
 import { ArticlesView } from '@renderer/features/articles/ArticlesView'
 import { GamesView } from '@renderer/features/games/GamesView'
+import { VocabBookView } from '@renderer/features/vocabbook/VocabBookView'
 import { useArticles } from '@renderer/features/articles/articleStore'
 import { Toasts } from '@renderer/components/Toasts'
 import { SelectionSaveMenu } from '@renderer/components/SelectionSaveMenu'
@@ -103,6 +104,7 @@ export function App(): ReactNode {
             {page === 'prompts' && <PromptManager />}
             {page === 'settings' && <SettingsView />}
             {page === 'games' && <GamesView />}
+            {page === 'vocabbook' && <VocabBookView />}
             {(page === 'ielts' || page === 'errors') && <ComingSoon page={page} />}
           </div>
         )}

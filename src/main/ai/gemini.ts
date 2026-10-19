@@ -16,6 +16,24 @@ import {
 } from './schemas'
 import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from '@shared/fsp'
 import { FSP_CHECK_INSTRUCTION, FSP_CHECK_SCHEMA, FSP_EXAMPLE_INSTRUCTION, FSP_EXAMPLE_SCHEMA, FSP_LESSON_INSTRUCTION, FSP_LESSON_SCHEMA } from './fspSchemas'
+import { VB_ENRICH_INSTRUCTION, VB_ENRICH_SCHEMA, VB_IMAGE_INSTRUCTION, VB_IMAGE_SCHEMA, VB_TEXT_INSTRUCTION, VB_TEXT_SCHEMA } from './vocabBookSchemas'
+
+export interface VbImageResult {
+  items: { term: string; meaning_bn: string; context: string; uncertain: boolean; note: string }[]
+  page_ref: string
+  complete: boolean
+  warning: string
+}
+export interface VbEnrichResult {
+  id: number
+  meaning_bn: string
+  definition_en: string
+  pos: string
+  example: string
+  example_bn: string
+  synonyms: string[]
+  collocations: string[]
+}
 
 export const DEFAULT_MODEL = 'gemini-flash-latest'
 
@@ -531,6 +549,28 @@ export class GeminiService {
   /** "Your turn": a corrected version of the learner's sentence and one Bangla tip. */
   yourTurn(sentence: string, phrases: string[]): Promise<{ corrected: string; tip_bn: string; ok: boolean }> {
     return this.json(YOUR_TURN_INSTRUCTION, `Phrases: ${phrases.join(', ')}\nLearner's sentence: "${sentence}"`, YOUR_TURN_SCHEMA, true)
+  }
+
+  /** Vocabulary Book: the words visible in a picture, in reading order; unclear ones are marked uncertain. */
+  async vocabFromImage(imageBase64: string, mimeType: string): Promise<VbImageResult> {
+    return this.resilient(async (model) => {
+      const res = await this.client().models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: 'List the English vocabulary on this page.' }] }],
+        config: { systemInstruction: VB_IMAGE_INSTRUCTION, responseMimeType: 'application/json', responseSchema: VB_IMAGE_SCHEMA }
+      })
+      return JSON.parse(res.text ?? 'null') as VbImageResult
+    })
+  }
+
+  /** Vocabulary Book: useful words from a story or passage, in order, each with its sentence. */
+  vocabFromText(text: string): Promise<{ items: { term: string; context: string }[] }> {
+    return this.json(VB_TEXT_INSTRUCTION, text.slice(0, 30_000), VB_TEXT_SCHEMA, true)
+  }
+
+  /** Vocabulary Book: meaning (in its context), definition, part of speech, example, synonyms, collocations. */
+  enrichVocab(items: { id: number; term: string; context: string }[]): Promise<VbEnrichResult[]> {
+    return this.json(VB_ENRICH_INSTRUCTION, JSON.stringify(items), VB_ENRICH_SCHEMA, true)
   }
 
   /** Short natural Bangla meaning of a line (Speak panel "?"). */

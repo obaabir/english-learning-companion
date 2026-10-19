@@ -316,6 +316,89 @@ const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
         repair.run(target, JSON.stringify(back), card.id)
       }
     }
+  },
+  // Vocabulary Book Learning: its own books, sources (pictures, stories, passages, lists), items in
+  // learning order with their own Day 1 → 4 → 7 schedule, review log and mistake history. Separate
+  // from notes/flashcards so the two decks can never mix.
+  (db) => {
+    db.exec(`
+      CREATE TABLE vb_books (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        daily_new INTEGER NOT NULL DEFAULT 10,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+      CREATE TABLE vb_sources (
+        id INTEGER PRIMARY KEY,
+        book_id INTEGER NOT NULL REFERENCES vb_books(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        title TEXT,
+        text TEXT,
+        image_file TEXT,
+        page_ref TEXT,
+        extraction TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+      CREATE TABLE vb_items (
+        id INTEGER PRIMARY KEY,
+        uid TEXT NOT NULL UNIQUE,
+        book_id INTEGER NOT NULL REFERENCES vb_books(id) ON DELETE CASCADE,
+        source_id INTEGER REFERENCES vb_sources(id) ON DELETE SET NULL,
+        seq INTEGER NOT NULL,
+        term TEXT NOT NULL,
+        original_term TEXT NOT NULL,
+        meaning_bn TEXT NOT NULL DEFAULT '',
+        definition_en TEXT NOT NULL DEFAULT '',
+        pos TEXT NOT NULL DEFAULT '',
+        context TEXT NOT NULL DEFAULT '',
+        example TEXT NOT NULL DEFAULT '',
+        example_bn TEXT NOT NULL DEFAULT '',
+        synonyms_json TEXT NOT NULL DEFAULT '[]',
+        collocations_json TEXT NOT NULL DEFAULT '[]',
+        page_ref TEXT,
+        enriched INTEGER NOT NULL DEFAULT 0,
+        enrich_error TEXT,
+        introduced_at TEXT,
+        step INTEGER NOT NULL DEFAULT 0,
+        interval_days REAL NOT NULL DEFAULT 0,
+        ease REAL NOT NULL DEFAULT 1,
+        reps INTEGER NOT NULL DEFAULT 0,
+        lapses INTEGER NOT NULL DEFAULT 0,
+        due TEXT,
+        last_reviewed_at TEXT,
+        last_rating INTEGER,
+        mistakes INTEGER NOT NULL DEFAULT 0,
+        gdoc_id TEXT,
+        gdoc_synced_at TEXT,
+        gdoc_error TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        UNIQUE (book_id, seq)
+      );
+      CREATE INDEX vb_items_book ON vb_items(book_id, seq);
+      CREATE TABLE vb_reviews (
+        id INTEGER PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES vb_items(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        correct INTEGER NOT NULL,
+        rating INTEGER NOT NULL,
+        reviewed_at TEXT NOT NULL
+      );
+      CREATE INDEX vb_reviews_item ON vb_reviews(item_id, reviewed_at);
+      CREATE TABLE vb_mistakes (
+        id INTEGER PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES vb_items(id) ON DELETE CASCADE,
+        number INTEGER NOT NULL,
+        mode TEXT NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        correct TEXT NOT NULL,
+        error_type TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        corrected_at TEXT
+      );
+      CREATE INDEX vb_mistakes_item ON vb_mistakes(item_id, created_at);
+    `)
   }
 ]
 

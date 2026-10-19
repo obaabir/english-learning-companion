@@ -37,6 +37,7 @@ import type { EwRequest } from './ew'
 import type { Article, ArticleDetail, ArticleInput, WebSelection } from './articles'
 import type { WeatherReport } from './voice'
 import type { LiveEvent } from './liveTools'
+import type { VbAnswer, VbBook, VbDashboard, VbDraft, VbExtraction, VbItem, VbItemEdit, VbMistake, VbSession, VbSource, VbSourceKind } from './vocabBook'
 
 /**
  * Every renderer → main call. Keys are IPC channel names; the preload exposes a
@@ -169,6 +170,44 @@ export interface Api {
   'live:end': () => Promise<void>
   /** The window's answer to a validated app-tool call (see live:toolCall). */
   'live:toolResult': (args: { callId: number; result: Record<string, unknown> }) => Promise<void>
+  /**
+   * Vocabulary Book Learning (a separate module: own books, order, deck, Day 1/4/7 schedule, mistakes
+   * and Google Doc). Pictures are read by Gemini vision or Windows OCR (offline) and always reviewed
+   * before importing.
+   */
+  'vb:books': () => Promise<VbBook[]>
+  'vb:createBook': (args: { title: string; dailyNew?: number }) => Promise<VbBook>
+  'vb:updateBook': (args: { id: number; title?: string; dailyNew?: number }) => Promise<VbBook>
+  'vb:items': (bookId: number) => Promise<VbItem[]>
+  'vb:sources': (bookId: number) => Promise<VbSource[]>
+  'vb:sourceImage': (file: string) => Promise<string>
+  'vb:extractImage': (args: { bookId: number; imageBase64: string; mimeType: string }) => Promise<VbExtraction>
+  'vb:extractText': (args: { bookId: number; kind: VbSourceKind; text: string }) => Promise<VbExtraction>
+  'vb:import': (args: {
+    bookId: number
+    kind: VbSourceKind
+    title?: string | null
+    text?: string | null
+    imageFile?: string | null
+    pageRef?: string | null
+    extraction?: string | null
+    drafts: VbDraft[]
+    allowDuplicates?: boolean
+  }) => Promise<{ added: number; skipped: string[]; firstSeq: number | null; lastSeq: number | null }>
+  /** Fill in meanings again for words where it failed. */
+  'vb:enrich': (ids: number[]) => Promise<void>
+  'vb:editItem': (edit: VbItemEdit) => Promise<VbItem>
+  'vb:session': (bookId: number) => Promise<VbSession>
+  'vb:mistakeReview': (bookId: number) => Promise<VbItem[]>
+  'vb:answer': (answer: VbAnswer) => Promise<{ item: VbItem; mistakeNumber: number | null }>
+  /** Sentence making: Gemini checks the use of the word (available = false without a key). */
+  'vb:checkSentence': (args: { itemId: number; sentence: string }) => Promise<{ available: boolean; correct: boolean; corrected: string; explanation: string }>
+  'vb:dashboard': (bookId: number) => Promise<VbDashboard>
+  'vb:mistakes': (args: { bookId: number; itemId?: number }) => Promise<VbMistake[]>
+  'vb:doc': () => Promise<GoogleDocInfo | null>
+  'vb:setDoc': (doc: GoogleDocInfo) => Promise<GoogleDocInfo>
+  'vb:createDoc': (title: string) => Promise<GoogleDocInfo>
+  'vb:sync': (bookId: number) => Promise<{ added: number; error: string | null }>
   /** Due today, overdue, upcoming, recently learned, frequently forgotten and mastered cards. */
   'revision:dashboard': () => Promise<RevisionDashboard>
   /** AI practice sentences (labelled AI-generated) for "Choose the correct sentence" and "Error correction". */
@@ -213,6 +252,8 @@ export interface Events {
   /** "Hey Jarvis" mode heard the wake phrase (alone, or with a command). */
   'voice:wakeHeard': { text: string; confidence: number }
   'voice:wakeState': { state: 'ready' | 'stopped' | 'error'; message?: string }
+  /** Vocabulary Book: meanings were filled in for some words of this book. */
+  'vb:changed': { bookId: number }
   /** Voice Mode: state, spoken audio, transcripts, interruptions, tool activity. */
   'live:event': LiveEvent
   /** Voice Mode asks the window to run one validated app tool (open a section, save the selection…). */
