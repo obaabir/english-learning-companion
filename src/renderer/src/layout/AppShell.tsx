@@ -33,7 +33,7 @@ const MAIN: NavItem[] = [
   { page: 'movie', label: 'Movie Mode', icon: <Clapperboard className="size-5" /> },
   { page: 'youtube', label: 'YouTube', icon: <YouTubeIcon className="size-5" /> },
   { page: 'room', label: 'Practice', icon: <Sprout className="size-5" /> },
-  { page: 'articles', label: 'Articles', icon: <Newspaper className="size-5" />, soon: true },
+  { page: 'articles', label: 'Articles', icon: <Newspaper className="size-5" /> },
   { page: 'world', label: 'English World', icon: <Globe2 className="size-5" /> }
 ]
 

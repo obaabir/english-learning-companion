@@ -12,12 +12,15 @@ import { ComingSoon } from '@renderer/features/ComingSoon'
 import { YouTubeView } from '@renderer/features/youtube/YouTubeView'
 import { PracticeRoom } from '@renderer/features/room/PracticeRoom'
 import { EnglishWorld } from '@renderer/features/englishworld/EnglishWorld'
+import { ArticlesView } from '@renderer/features/articles/ArticlesView'
+import { useArticles } from '@renderer/features/articles/articleStore'
 import { Toasts } from '@renderer/components/Toasts'
 import { SelectionSaveMenu } from '@renderer/components/SelectionSaveMenu'
 
 export function App(): ReactNode {
   const page = useApp((s) => s.page)
   const [youtubeVisited, setYoutubeVisited] = useState(false)
+  const [articlesVisited, setArticlesVisited] = useState(false)
   // Reload button (top left): remounts only the section on screen so it loads its data again.
   const [reloads, setReloads] = useState<Record<string, number>>({})
   useEffect(() => {
@@ -30,6 +33,7 @@ export function App(): ReactNode {
   }, [])
   useEffect(() => {
     if (page === 'youtube') setYoutubeVisited(true)
+    if (page === 'articles') setArticlesVisited(true)
   }, [page])
 
   useEffect(() => {
@@ -44,11 +48,17 @@ export function App(): ReactNode {
       if (r.ok) toast('success', 'Added to Google Docs')
       else toast('error', `Saved to notes, but Google Docs failed: ${r.error ?? 'unknown error'}`)
     })
+    // Text sent from Chrome (English Companion extension) opens in Articles and is explained there.
+    const offWeb = on('articles:external', (sel) => {
+      useApp.getState().setPage('articles')
+      void useArticles.getState().receiveWeb(sel, 'chrome').catch(toastError)
+    })
     const timer = setInterval(() => void refreshDue(), 60_000)
     return () => {
       offStatus()
       offLine()
       offDocs()
+      offWeb()
       clearInterval(timer)
     }
   }, [])
@@ -72,7 +82,13 @@ export function App(): ReactNode {
             <YouTubeView active={page === 'youtube'} />
           </div>
         )}
-        {page !== 'movie' && page !== 'youtube' && (
+        {/* Kept mounted after the first visit so the open web page and reading position survive. */}
+        {articlesVisited && (
+          <div key={`articles-${reloads.articles ?? 0}`} className={page === 'articles' ? 'anim-fade-in h-full' : 'hidden'}>
+            <ArticlesView active={page === 'articles'} />
+          </div>
+        )}
+        {page !== 'movie' && page !== 'youtube' && page !== 'articles' && (
           <div key={`${page}-${reloads[page] ?? 0}`} className="anim-fade-in h-full">
             {page === 'notes' && <NotesView key="notes" mode="all" />}
             {page === 'structures' && <NotesView key="structures" mode="structures" />}
@@ -83,7 +99,7 @@ export function App(): ReactNode {
             {page === 'flashcards' && <FlashcardsView />}
             {page === 'prompts' && <PromptManager />}
             {page === 'settings' && <SettingsView />}
-            {(page === 'games' || page === 'ielts' || page === 'errors' || page === 'articles') && <ComingSoon page={page} />}
+            {(page === 'games' || page === 'ielts' || page === 'errors') && <ComingSoon page={page} />}
           </div>
         )}
         <SelectionSaveMenu />

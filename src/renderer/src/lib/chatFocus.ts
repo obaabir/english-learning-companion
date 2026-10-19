@@ -16,3 +16,9 @@ export function focusFromSelection(root: HTMLElement | null, source: ChatFocus['
   const around = block && root.contains(block) ? (block.textContent ?? '').replace(/\s+/g, ' ').trim() : ''
   return { text, sentence, excerpt: around && around !== text ? around.slice(0, 700) : null, source }
 }
+
+/** Focuses the chat box on screen (other sections keep their own chat mounted but hidden). */
+export function focusVisibleChatInput(): void {
+  const boxes = document.querySelectorAll<HTMLTextAreaElement>('textarea[data-chat-input]:not([disabled])')
+  ;[...boxes].find((t) => t.offsetParent !== null)?.focus()
+}

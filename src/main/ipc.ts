@@ -42,6 +42,8 @@ import { listRecentVideos, saveVideoPosition } from './db/repos/youtube'
 import { buildFocusedQuestion, buildStudyMessage, DEFAULT_MODEL, fallbackFlashcard, type GeminiService } from './ai/gemini'
 import type { GoogleService } from './google/GoogleService'
 import { createNoteSync } from './notesSync'
+import { getArticleDetail, listArticles, recordArticle, setArticleNote } from './db/repos/articles'
+import { buildArticleExplain } from './ai/article'
 
 interface Services {
   db: Db
@@ -261,6 +263,22 @@ export function registerIpc(s: Services): void {
     return insertMessage(db, chatId, 'model', reply)
   })
   handle('chats:delete', (chatId) => deleteChat(db, chatId))
+
+  // ---- articles (in-app browser / pasted text)
+  handle('articles:record', (input) => recordArticle(db, input))
+  handle('articles:list', () => listArticles(db))
+  handle('articles:get', (id) => getArticleDetail(db, id))
+  handle('articles:setNote', ({ id, note }) => setArticleNote(db, id, note))
+  handle('articles:explain', async ({ requestId, ...args }) => {
+    if (!args.text.trim()) throw new Error('Select a word or sentence first.')
+    const { systemInstruction, message } = buildArticleExplain(args)
+    return gemini.stream({
+      systemInstruction,
+      contents: [{ role: 'user', parts: [{ text: message }] }],
+      onDelta: (delta) => send(s.window(), 'ai:chunk', { requestId, delta }),
+      fast: true
+    })
+  })
 
   // ---- notes
   const extract = async (n: Pick<Note, 'kind' | 'text' | 'contextSentence' | 'explanationMd'>) => {

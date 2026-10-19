@@ -9,6 +9,7 @@ import type { Player } from './player/Player'
 import { DEFAULT_MODEL, GeminiService } from './ai/gemini'
 import { GoogleService } from './google/GoogleService'
 import { registerIpc, send } from './ipc'
+import { startChromeBridge } from './bridge/chromeBridge'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -27,9 +28,12 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      // The Articles section's in-app browser (locked down in secureArticleBrowser).
+      webviewTag: true
     }
   })
+  secureArticleBrowser(mainWindow)
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => (mainWindow = null))
@@ -45,6 +49,46 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+/** The in-app browser's own storage (cookies, logins), separate from the app's. */
+const ARTICLE_PARTITION = 'persist:articles'
+
+/**
+ * The Articles in-app browser is a Chromium <webview>. Websites run sandboxed with no access to the
+ * app; our small preload only reports the text you select and the readable article text. Pages can't
+ * open popups (links open in the same view), leave http/https, or use camera/mic/location.
+ */
+function secureArticleBrowser(win: BrowserWindow): void {
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    if (params.partition !== ARTICLE_PARTITION || !/^(https?:\/\/|about:blank)/.test(params.src ?? '')) {
+      event.preventDefault()
+      return
+    }
+    webPreferences.preload = join(__dirname, '../preload/article.js')
+    webPreferences.nodeIntegration = false
+    webPreferences.nodeIntegrationInSubFrames = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
+    webPreferences.webSecurity = true
+    webPreferences.allowRunningInsecureContent = false
+  })
+  win.webContents.on('did-attach-webview', (_event, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) void guest.loadURL(url)
+      return { action: 'deny' }
+    })
+    guest.on('will-navigate', (e, url) => {
+      if (!/^(https?:\/\/|about:blank)/.test(url)) e.preventDefault()
+    })
+  })
+}
+
+function lockArticleSession(): void {
+  const ses = session.fromPartition(ARTICLE_PARTITION)
+  const allowed = new Set(['fullscreen', 'clipboard-sanitized-write'])
+  ses.setPermissionRequestHandler((_wc, permission, callback) => callback(allowed.has(permission)))
+  ses.setPermissionCheckHandler((_wc, permission) => allowed.has(permission))
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -72,6 +116,12 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     registerIpc({ db, players, gemini, google, window: () => mainWindow })
+    lockArticleSession()
+    // Text selected in Chrome (English Companion extension) arrives here, like subtitles from VLC.
+    startChromeBridge((sel) => {
+      send(mainWindow, 'articles:external', sel)
+      if (mainWindow && !mainWindow.isFocused()) mainWindow.flashFrame(true)
+    })
 
     // The embedded YouTube player requires a Referer identifying the embedding app. Desktop apps
     // have none, so identify this app by its id (as YouTube asks of native/WebView apps).

@@ -8,7 +8,17 @@ export default defineConfig({
     resolve: { alias: { '@shared': resolve('src/shared') } }
   },
   preload: {
-    resolve: { alias: { '@shared': resolve('src/shared') } }
+    resolve: { alias: { '@shared': resolve('src/shared') } },
+    build: {
+      // article.js runs sandboxed inside pages of the Articles in-app browser, so Readability is bundled into it.
+      externalizeDeps: { exclude: ['@mozilla/readability'] },
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          article: resolve('src/preload/article.ts')
+        }
+      }
+    }
   },
   renderer: {
     resolve: {

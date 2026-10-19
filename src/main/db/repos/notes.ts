@@ -16,6 +16,7 @@ interface NoteRow {
   gdoc_synced_at: string | null
   gdoc_error: string | null
   user_note: string | null
+  article_id?: number | null
   created_at: string
 }
 
@@ -34,14 +35,15 @@ const toNote = (r: NoteRow): Note => ({
   gdocSyncedAt: r.gdoc_synced_at,
   gdocError: r.gdoc_error,
   userNote: r.user_note,
+  articleId: r.article_id ?? null,
   createdAt: r.created_at
 })
 
 export function insertNote(db: Db, input: NewNoteInput, data: NoteData | null): Note {
   const res = db
     .prepare(
-      `INSERT INTO notes (kind, text, context_sentence, explanation_md, data_json, media_path, media_title, timestamp_sec, prompt_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO notes (kind, text, context_sentence, explanation_md, data_json, media_path, media_title, timestamp_sec, prompt_id, article_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.kind,
@@ -52,7 +54,8 @@ export function insertNote(db: Db, input: NewNoteInput, data: NoteData | null): 
       input.mediaPath ?? null,
       input.mediaTitle ?? null,
       input.timestampSec ?? null,
-      input.promptId ?? null
+      input.promptId ?? null,
+      input.articleId ?? null
     )
   return getNote(db, Number(res.lastInsertRowid))!
 }
@@ -73,6 +76,10 @@ export function listNotes(db: Db, filter: NoteFilter = {}): Note[] {
     const like = `%${filter.search.trim().replace(/[%_\\]/g, (c) => '\\' + c)}%`
     where.push("(text LIKE ? ESCAPE '\\' OR context_sentence LIKE ? ESCAPE '\\' OR data_json LIKE ? ESCAPE '\\')")
     params.push(like, like, like)
+  }
+  if (filter.articleId) {
+    where.push('article_id = ?')
+    params.push(filter.articleId)
   }
   if (filter.mediaPath) {
     where.push('media_path = ?')

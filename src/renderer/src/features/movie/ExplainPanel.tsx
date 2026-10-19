@@ -85,7 +85,7 @@ export function ExplainPanel(): ReactNode {
   )
 }
 
-function ChatDock(): ReactNode {
+export function ChatDock(): ReactNode {
   const open = useLayout((s) => s.chatOpen)
   const saved = useLayout((s) => s.chatHeight)
   // While dragging, the height follows the pointer without saving on every move.

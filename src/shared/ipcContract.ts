@@ -30,6 +30,7 @@ import type {
 } from './types'
 import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from './fsp'
 import type { EwRequest } from './ew'
+import type { Article, ArticleDetail, ArticleInput, WebSelection } from './articles'
 
 /**
  * Every renderer → main call. Keys are IPC channel names; the preload exposes a
@@ -104,6 +105,21 @@ export interface Api {
   'chats:send': (args: { requestId: string; chatId: number; text: string; focus?: ChatFocus | null }) => Promise<ChatMessage>
   'chats:delete': (chatId: number) => Promise<void>
 
+  /** Articles: reading history (opened in the in-app browser or pasted). Saved per URL. */
+  'articles:record': (input: ArticleInput) => Promise<Article>
+  'articles:list': () => Promise<Article[]>
+  'articles:get': (id: number) => Promise<ArticleDetail | null>
+  'articles:setNote': (args: { id: number; note: string }) => Promise<Article>
+  /** Streams (ai:chunk) an explanation of a word or sentence selected in an article. */
+  'articles:explain': (args: {
+    requestId: string
+    text: string
+    sentence: string | null
+    paragraph: string | null
+    title: string | null
+    domain: string | null
+  }) => Promise<string>
+
   'notes:create': (input: NewNoteInput) => Promise<Note>
   'notes:list': (filter?: NoteFilter) => Promise<Note[]>
   'notes:get': (id: number) => Promise<Note | null>
@@ -159,6 +175,8 @@ export interface Events {
   'ai:chunk': { requestId: string; delta: string }
   /** A note's background Google Docs save finished. */
   'notes:docsResult': { noteId: number; ok: boolean; error: string | null }
+  /** Text sent from Chrome by the English Companion extension. */
+  'articles:external': WebSelection
   'youtube:transcriptProgress': { videoId: string; transcript: TranscriptLine[]; chunksDone: number; totalChunks: number; complete: boolean }
 }
 

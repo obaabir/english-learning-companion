@@ -37,11 +37,17 @@ export function buildStudyMessage(ctx: StudyContext): string {
 export function buildFocusedQuestion(question: string, focus?: ChatFocus | null): string {
   if (!focus?.text.trim()) return question
   const parts = [`[The learner highlighted this text and is asking about it: "${focus.text.trim()}"]`]
-  if (focus.sentence?.trim() && focus.sentence.trim() !== focus.text.trim()) parts.push(`[Original sentence: "${focus.sentence.trim()}"]`)
-  if (focus.excerpt?.trim()) {
-    const where = focus.source === 'chat' ? 'your earlier answer' : 'the explanation'
-    parts.push(`[Where it appears in ${where}:\n${focus.excerpt.trim()}]`)
+  if (focus.source === 'article' && (focus.articleTitle || focus.articleDomain)) {
+    parts.push(`[It is from the article ${[focus.articleTitle ? `"${focus.articleTitle}"` : '', focus.articleDomain ? `(${focus.articleDomain})` : ''].filter(Boolean).join(' ')}]`)
   }
+  if (focus.sentence?.trim() && focus.sentence.trim() !== focus.text.trim()) {
+    parts.push(`[Original sentence${focus.source === 'article' ? ' from the article' : ''}: "${focus.sentence.trim()}"]`)
+  }
+  if (focus.excerpt?.trim()) {
+    const where = focus.source === 'chat' ? 'your earlier answer' : focus.source === 'article' ? 'the article (surrounding text)' : 'the explanation'
+    parts.push(`[Where it appears in ${where}:\n${focus.excerpt.trim().slice(0, 1200)}]`)
+  }
+  if (focus.explanation?.trim()) parts.push(`[Your earlier explanation of it:\n${focus.explanation.trim().slice(0, 2500)}]`)
   parts.push(`[Answer about the highlighted text specifically, in its context.]`, '', question)
   return parts.join('\n')
 }

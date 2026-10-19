@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BookmarkPlus, ChevronDown, FileText, Layers, MessageCircle, Sparkles } from 'lucide-react'
-import type { NoteKind } from '@shared/types'
+import type { NewNoteInput, NoteKind } from '@shared/types'
+import { sentenceAround } from '@shared/articles'
+import { focusVisibleChatInput } from '@renderer/lib/chatFocus'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { useMovie } from '@renderer/stores/movie'
@@ -8,9 +10,53 @@ import { useChat } from '@renderer/stores/chat'
 import { useLayout } from '@renderer/stores/layout'
 import { cn } from '@renderer/lib/cn'
 
-interface MenuState {
+/** A selection the menu acts on. */
+export interface SelectionInfo {
   text: string
+  /** The paragraph/list item around it. */
   context: string | null
+  /** The sentence it is in (from the original text). */
+  sentence: string | null
+  /** Selected inside an AI explanation (not original text). */
+  fromAi: boolean
+}
+
+/**
+ * A section (e.g. Articles) can handle Explain / Ask / Save its own way for selections made inside
+ * an element marked data-selection-scope="<name>", or shown with showSelectionMenu.
+ */
+export interface SelectionScope {
+  explain: (s: SelectionInfo) => void
+  ask: (s: SelectionInfo) => void
+  /** Extra fields for the saved note (e.g. the article it came from). */
+  noteFields: (s: SelectionInfo) => Promise<Partial<NewNoteInput>>
+  /** The note type to highlight; nothing is saved until a type is clicked. */
+  suggestKind?: (s: SelectionInfo) => NoteKind
+}
+
+const scopes = new Map<string, SelectionScope>()
+
+export function registerSelectionScope(name: string, scope: SelectionScope): () => void {
+  scopes.set(name, scope)
+  return () => {
+    if (scopes.get(name) === scope) scopes.delete(name)
+  }
+}
+
+export interface ExternalSelection extends SelectionInfo {
+  scope: string
+  /** Where the selection is on screen (window coordinates). */
+  rect: { left: number; top: number; bottom: number; width: number }
+}
+
+/** Shows (or, with null, hides) the menu for a selection made outside this page, e.g. in the in-app browser. */
+export function showSelectionMenu(sel: ExternalSelection | null): void {
+  window.dispatchEvent(new CustomEvent('elc:selection-menu', { detail: sel }))
+}
+
+interface MenuState extends SelectionInfo {
+  scope: string | null
+  external: boolean
   x: number
   y: number
   /** Where the selection's top edge was, to place the open save panel above it when there is room. */
@@ -32,6 +78,16 @@ const CARD_KINDS: NoteKind[] = ['word', 'idiom', 'sentence', 'structure', 'gramm
 const CARD_KEY = 'elc.saveMenu.flashcard'
 const MENU_W = 340
 const PANEL_H = 200
+
+/** Menu position above the selection (below it near the top of the window). */
+function place(rect: { left: number; top: number; bottom: number; width: number }): Pick<MenuState, 'x' | 'y' | 'top' | 'bottom'> {
+  return {
+    x: Math.min(Math.max(8, rect.left + rect.width / 2 - MENU_W / 2), window.innerWidth - MENU_W - 8),
+    y: rect.top > 60 ? rect.top - 48 : rect.bottom + 8,
+    top: rect.top,
+    bottom: rect.bottom
+  }
+}
 
 function loadCardPref(): boolean {
   try {
@@ -69,21 +125,24 @@ export function SelectionSaveMenu(): ReactNode {
         }
         const node = sel.anchorNode
         const el = node instanceof Element ? node : node?.parentElement
-        if (!el?.closest('[data-savable]')) {
+        const scopeEl = el?.closest<HTMLElement>('[data-selection-scope]')
+        if (!el || (!scopeEl && !el.closest('[data-savable]'))) {
           setMenu(null)
           return
         }
-        const block = el.closest('p, li, td, blockquote')
+        // Unchanged for ordinary selections; Articles also counts headings and code blocks as paragraphs.
+        const block = el.closest(scopeEl ? 'p, li, td, blockquote, h1, h2, h3, h4, h5, h6, pre' : 'p, li, td, blockquote')
         const blockText = block?.textContent?.replace(/\s+/g, ' ').trim() ?? null
         const rect = sel.getRangeAt(0).getBoundingClientRect()
         setSaveOpen(false)
         setMenu({
           text,
-          context: blockText && blockText !== text && blockText.length <= 400 ? blockText : null,
-          x: Math.min(Math.max(8, rect.left + rect.width / 2 - MENU_W / 2), window.innerWidth - MENU_W - 8),
-          y: rect.top > 60 ? rect.top - 48 : rect.bottom + 8,
-          top: rect.top,
-          bottom: rect.bottom
+          context: blockText && blockText !== text && blockText.length <= (scopeEl ? 1200 : 400) ? blockText : null,
+          sentence: blockText ? sentenceAround(blockText, text) : null,
+          fromAi: !!el.closest('[data-ai-text]'),
+          scope: scopeEl?.dataset.selectionScope ?? null,
+          external: false,
+          ...place(rect)
         })
       }, 0)
     }
@@ -93,10 +152,22 @@ export function SelectionSaveMenu(): ReactNode {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setMenu(null)
     }
+    // Selections made in the in-app browser arrive as events (its pages are separate documents).
+    const onExternal = (e: Event): void => {
+      const sel = (e as CustomEvent<ExternalSelection | null>).detail
+      if (!sel) {
+        setMenu((m) => (m?.external ? null : m))
+        return
+      }
+      setSaveOpen(false)
+      setMenu({ ...sel, external: true, ...place(sel.rect) })
+    }
+    window.addEventListener('elc:selection-menu', onExternal)
     document.addEventListener('mouseup', onMouseUp)
     document.addEventListener('mousedown', onMouseDown)
     document.addEventListener('keydown', onKey)
     return () => {
+      window.removeEventListener('elc:selection-menu', onExternal)
       document.removeEventListener('mouseup', onMouseUp)
       document.removeEventListener('mousedown', onMouseDown)
       document.removeEventListener('keydown', onKey)
@@ -105,8 +176,11 @@ export function SelectionSaveMenu(): ReactNode {
 
   if (!menu) return null
 
+  const scope = menu.scope ? scopes.get(menu.scope) : undefined
+  const info: SelectionInfo = { text: menu.text, context: menu.context, sentence: menu.sentence, fromAi: menu.fromAi }
+
   const close = (): void => {
-    window.getSelection()?.removeAllRanges()
+    if (!menu.external) window.getSelection()?.removeAllRanges()
     setMenu(null)
   }
 
@@ -119,11 +193,15 @@ export function SelectionSaveMenu(): ReactNode {
       const note = await invoke('notes:create', {
         kind,
         text: menu.text,
-        // The paragraph it came from, or else the sentence the conversation is about.
-        contextSentence: menu.context ?? chat?.contextSentence ?? chat?.contextText ?? null,
-        mediaTitle: chat?.mediaTitle ?? null,
-        mediaPath: chat?.mediaPath ?? null,
-        timestampSec: chat?.timestampSec ?? null,
+        ...(scope
+          ? await scope.noteFields(info)
+          : {
+              // The paragraph it came from, or else the sentence the conversation is about.
+              contextSentence: menu.context ?? chat?.contextSentence ?? chat?.contextText ?? null,
+              mediaTitle: chat?.mediaTitle ?? null,
+              mediaPath: chat?.mediaPath ?? null,
+              timestampSec: chat?.timestampSec ?? null
+            }),
         saveToDocs: toDocs
       })
       let cardMsg = ''
@@ -147,6 +225,11 @@ export function SelectionSaveMenu(): ReactNode {
   }
 
   const explain = (): void => {
+    if (scope) {
+      scope.explain(info)
+      close()
+      return
+    }
     useMovie.getState().setCustom({ text: menu.text, kind: menu.text.includes(' ') ? 'phrase' : 'word' })
     useApp.getState().setPage('movie')
     close()
@@ -154,6 +237,12 @@ export function SelectionSaveMenu(): ReactNode {
 
   /** Makes the selection the chat's topic and opens the chat, ready for the question. */
   const ask = (): void => {
+    if (scope) {
+      scope.ask(info)
+      close()
+      setTimeout(focusVisibleChatInput, 260)
+      return
+    }
     const chat = useChat.getState()
     if (chat.focus?.text !== menu.text) {
       const active = chat.chats.find((c) => c.id === chat.activeChatId)
@@ -216,6 +305,7 @@ export function SelectionSaveMenu(): ReactNode {
                 onClick={() => void save(kind)}
                 className={cn(
                   'h-8 rounded-lg border border-line/60 px-2 text-left text-xs font-medium motion-press hover:bg-white/80 disabled:opacity-50',
+                  scope?.suggestKind?.(info) === kind && 'border-rose/60 bg-accent-soft/60',
                   busy === kind && 'animate-pulse'
                 )}
               >

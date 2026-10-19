@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 13px system-ui, 'Segoe UI', sans-serif; width: 260px; margin: 0; padding: 14px; color: #222; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      .s { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #f3f0f2; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #aaa; }
+      .ok .dot { background: #2e7d32; }
+      .bad .dot { background: #c62828; }
+      p { color: #555; line-height: 1.45; margin: 10px 0 0; }
+      label { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>English Companion</h1>
+    <div id="status" class="s"><span class="dot"></span><span id="text">Checking the app…</span></div>
+    <label><input id="show" type="checkbox" /> Show the Explain button when I select text</label>
+    <p>Select English text on any page, then press <b>✨ Explain</b>, right-click → <b>Explain in English Companion</b>, or press <b>Alt+Shift+E</b>.</p>
+    <script src="popup.js"></script>
+  </body>
+</html>

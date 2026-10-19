@@ -95,6 +95,8 @@ export interface Note {
   gdocError: string | null
   /** The learner's own note on this item. */
   userNote: string | null
+  /** The article it was saved from (Articles section). */
+  articleId?: number | null
   createdAt: string
 }
 
@@ -107,6 +109,7 @@ export interface NewNoteInput {
   mediaTitle?: string | null
   timestampSec?: number | null
   promptId?: number | null
+  articleId?: number | null
   /** Also append the note to the category's Google Doc. */
   saveToDocs?: boolean
 }
@@ -117,6 +120,7 @@ export interface NoteFilter {
   /** Stable movie identity: the movie's file path. */
   mediaPath?: string
   mediaTitle?: string
+  articleId?: number
 }
 
 /** A movie with saved notes, and the Google Doc its notes go to (if chosen). */
@@ -155,9 +159,13 @@ export interface ChatFocus {
   text: string
   /** The original subtitle/sentence being studied. */
   sentence?: string | null
-  /** The part of the explanation or chat answer around the highlight. */
+  /** The part of the explanation, chat answer or article around the highlight. */
   excerpt?: string | null
-  source: 'explanation' | 'chat'
+  source: 'explanation' | 'chat' | 'article'
+  /** Article selections: where it was read, and the explanation already given for it. */
+  articleTitle?: string | null
+  articleDomain?: string | null
+  explanation?: string | null
 }
 
 export interface FlashcardBack {

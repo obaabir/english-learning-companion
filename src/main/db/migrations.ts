@@ -211,6 +211,26 @@ const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
   // Chat questions remember the text the learner had highlighted (JSON ChatFocus).
   (db) => {
     db.exec(`ALTER TABLE chat_messages ADD COLUMN focus_json TEXT;`)
+  },
+  // Articles: reading history with a copy of the original text, visits per day, and notes linked to them.
+  (db) => {
+    db.exec(`
+      CREATE TABLE articles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        site_name TEXT,
+        byline TEXT,
+        excerpt TEXT,
+        blocks_json TEXT,
+        personal_note TEXT,
+        first_opened_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        last_opened_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+      ALTER TABLE notes ADD COLUMN article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL;
+      CREATE INDEX notes_article ON notes(article_id);
+    `)
   }
 ]
 
