@@ -116,7 +116,17 @@ export function AddWords({ bookId, onImported }: { bookId: number; onImported: (
         imageFile: isImage ? result?.imageFile ?? null : null,
         pageRef: pageRef.trim() || null,
         extraction: result?.engine === 'gemini' ? (isImage ? 'Gemini vision' : 'Chosen by Gemini') : result?.engine === 'windows-ocr' ? 'Windows OCR (offline)' : 'Typed / pasted',
-        drafts: chosen.map((r) => ({ term: r.term.trim(), meaningBn: r.meaningBn?.trim() || undefined, context: r.context?.trim() || undefined })),
+        drafts: chosen.map((r) => ({
+          term: r.term.trim(),
+          meaningBn: r.meaningBn?.trim() || undefined,
+          definitionEn: r.definitionEn?.trim() || undefined,
+          pos: r.pos,
+          synonyms: r.synonyms,
+          collocations: r.collocations,
+          example: r.example,
+          exampleBn: r.exampleBn,
+          context: r.context?.trim() || undefined
+        })),
         // Words you ticked although they are already in the book (e.g. another meaning).
         allowDuplicates: chosen.some((r) => r.duplicateOf !== null && r.duplicateOf !== undefined)
       })
@@ -231,6 +241,16 @@ export function AddWords({ bookId, onImported }: { bookId: number; onImported: (
               <Input value={pageRef} onChange={(e) => setPageRef(e.target.value)} placeholder="e.g. Unit 7, page 42" className="h-8" aria-label="Page reference" />
             </label>
           )}
+          {result.skipped && result.skipped.length > 0 && (
+            <details className="text-xs text-muted" open={result.skipped.length <= 6}>
+              <summary className="cursor-pointer">Lines not used ({result.skipped.length})</summary>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {result.skipped.map((l, i) => (
+                  <li key={i}>{l}</li>
+                ))}
+              </ul>
+            </details>
+          )}
           {result.rawText && (
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">What the OCR read</summary>
@@ -239,24 +259,38 @@ export function AddWords({ bookId, onImported }: { bookId: number; onImported: (
           )}
           <div className="glass-inset divide-y divide-line/50 overflow-hidden rounded-xl">
             {rows.map((r, i) => (
-              <div key={r.key} className={cn('flex flex-wrap items-center gap-2 px-3 py-2', !r.include && 'opacity-50')} data-review-row>
-                <input type="checkbox" className="size-4 accent-[var(--accent)]" checked={r.include} onChange={(e) => patchRow(r.key, { include: e.target.checked })} aria-label={`Import ${r.term}`} />
-                <span className="w-6 text-right text-xs text-muted tabular-nums">{i + 1}</span>
-                <Input value={r.term} onChange={(e) => patchRow(r.key, { term: e.target.value })} className="h-8 w-48 font-medium" aria-label="Word or phrase" />
-                <Input value={r.meaningBn ?? ''} onChange={(e) => patchRow(r.key, { meaningBn: e.target.value })} placeholder="Bangla meaning (optional)" className="h-8 w-48" aria-label="Bangla meaning" />
-                {r.uncertain && r.include && (
-                  <label className={cn('flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium', r.confirmed ? 'bg-accent-soft text-accent' : 'bg-warn-soft text-warn')} title={r.note || 'Not read clearly: compare with the picture'}>
-                    <input type="checkbox" className="size-3.5" checked={r.confirmed} onChange={(e) => patchRow(r.key, { confirmed: e.target.checked })} aria-label={`${r.term} is correct`} />
-                    {r.confirmed ? 'Checked' : `Check${r.note ? `: ${r.note}` : ''} — correct?`}
-                  </label>
-                )}
-                {r.duplicateOf !== null && r.duplicateOf !== undefined && <Badge tone="warn">{r.duplicateOf ? `already word ${r.duplicateOf}` : 'repeated in this list'}</Badge>}
-                {r.context && <span className="w-full truncate pl-12 text-xs text-muted italic">“{r.context}”</span>}
-                <span className="ml-auto flex gap-0.5">
-                  <Button size="sm" variant="ghost" icon={<ArrowUp className="size-3.5" />} aria-label="Move up" onClick={() => move(i, -1)} />
-                  <Button size="sm" variant="ghost" icon={<ArrowDown className="size-3.5" />} aria-label="Move down" onClick={() => move(i, 1)} />
-                  <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} aria-label="Remove" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} />
-                </span>
+              <div key={r.key} className={cn('space-y-1.5 px-3 py-2', !r.include && 'opacity-50')} data-review-row>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input type="checkbox" className="size-4 accent-[var(--accent)]" checked={r.include} onChange={(e) => patchRow(r.key, { include: e.target.checked })} aria-label={`Import ${r.term}`} />
+                  <span className="w-6 text-right text-xs text-muted tabular-nums">{i + 1}</span>
+                  <div className="w-52 min-w-0">
+                    <Input value={r.term} onChange={(e) => patchRow(r.key, { term: e.target.value })} className="h-8 font-medium" aria-label="Word or phrase" />
+                  </div>
+                  <div className="w-52 min-w-0">
+                    <Input value={r.meaningBn ?? ''} onChange={(e) => patchRow(r.key, { meaningBn: e.target.value })} placeholder="Bangla meaning (optional)" className="h-8" aria-label="Bangla meaning" />
+                  </div>
+                  <div className="min-w-40 flex-1">
+                    <Input value={r.definitionEn ?? ''} onChange={(e) => patchRow(r.key, { definitionEn: e.target.value })} placeholder="English meaning (optional)" className="h-8" aria-label="English meaning" />
+                  </div>
+                  <span className="flex gap-0.5">
+                    <Button size="sm" variant="ghost" icon={<ArrowUp className="size-3.5" />} aria-label="Move up" onClick={() => move(i, -1)} />
+                    <Button size="sm" variant="ghost" icon={<ArrowDown className="size-3.5" />} aria-label="Move down" onClick={() => move(i, 1)} />
+                    <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} aria-label="Remove" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} />
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pl-14 text-xs text-muted">
+                  {r.uncertain && r.include && (
+                    <label className={cn('flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium', r.confirmed ? 'bg-accent-soft text-accent' : 'bg-warn-soft text-warn')} title={r.note || 'Not read clearly: compare with the picture'}>
+                      <input type="checkbox" className="size-3.5" checked={r.confirmed} onChange={(e) => patchRow(r.key, { confirmed: e.target.checked })} aria-label={`${r.term} is correct`} />
+                      {r.confirmed ? 'Checked' : `Check${r.note ? `: ${r.note}` : ''} — correct?`}
+                    </label>
+                  )}
+                  {r.duplicateOf !== null && r.duplicateOf !== undefined && <Badge tone="warn">{r.duplicateOf ? `already word ${r.duplicateOf}` : 'repeated in this list'}</Badge>}
+                  {r.pos && <Badge>{r.pos}</Badge>}
+                  {r.synonyms && r.synonyms.length > 0 && <span>Synonyms: {r.synonyms.join(', ')}</span>}
+                  {r.example && <span className="italic">Example: “{r.example}”</span>}
+                  {r.context && <span className="w-full truncate italic">“{r.context}”</span>}
+                </div>
               </div>
             ))}
             {!rows.length && <p className="px-3 py-3 text-sm text-muted">No words yet. Add them below.</p>}

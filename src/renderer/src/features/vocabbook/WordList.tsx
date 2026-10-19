@@ -30,6 +30,7 @@ export function WordList({ bookId, items, onChanged }: { bookId: number; items: 
   const [filter, setFilter] = useState<VbStatus | 'all' | 'mistakes'>('all')
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<number | null>(null)
+  const hasKey = useApp((s) => !!s.settings?.hasGeminiKey)
   const shown = useMemo(
     () =>
       items.filter(
@@ -71,7 +72,7 @@ export function WordList({ bookId, items, onChanged }: { bookId: number; items: 
                 <span className="w-8 shrink-0 text-right text-xs text-muted tabular-nums">{i.seq}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{i.term}</span>
-                  <span className="block truncate text-xs text-muted">{i.meaningBn || (i.enrichError ? 'meaning not filled in' : 'meaning coming…')}</span>
+                  <span className="block truncate text-xs text-muted">{i.meaningBn || i.definitionEn || (i.enrichError ? 'meaning not filled in' : hasKey ? 'meaning coming…' : 'no meaning yet — add it with Edit')}</span>
                 </span>
                 <MistakeBadge n={i.mistakes} />
                 <Badge tone={STATUS_LABEL[st].tone}>{STATUS_LABEL[st].label}</Badge>

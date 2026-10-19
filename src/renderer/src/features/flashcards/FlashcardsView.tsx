@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { CheckCircle2, Layers, List, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { formatTimestamp, type Flashcard, type FlashcardStats, type ReviewRating } from '@shared/types'
-import { invoke } from '@renderer/lib/api'
+import { invoke, on } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Badge, Button, EmptyState, PanelHeader } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
@@ -49,6 +49,19 @@ function FlashcardReview({ modeSwitch }: { modeSwitch: ReactNode }): ReactNode {
   useEffect(() => {
     if (browse) void invoke('flashcards:list').then(setAll).catch(toastError)
   }, [browse, toastError, stats])
+
+  // A word saved a moment ago (anywhere in the app): counts and the list update at once, and its new
+  // card joins the end of this review (the card on screen stays).
+  useEffect(
+    () =>
+      on('learning:changed', () => {
+        void invoke('flashcards:stats').then(setStats).catch(() => undefined)
+        void invoke('flashcards:due', 100)
+          .then((due) => setQueue((q) => [...q, ...due.filter((d) => d.reps === 0 && !q.some((x) => x.id === d.id))]))
+          .catch(() => undefined)
+      }),
+    []
+  )
 
   const card = queue[0]
 

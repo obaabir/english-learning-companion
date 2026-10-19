@@ -28,14 +28,14 @@ const note: Note = {
 }
 
 describe('Google Docs entry', () => {
-  it('includes meaning, source and exact timestamp, and drops empty fields', () => {
-    const entry = noteToDocEntry(note, new Date('2026-10-09T10:00:00Z'))
+  it('only the Bangla meaning, English meaning and one example (plus the record ID) go to the doc', () => {
+    const entry = noteToDocEntry(note)
     const byLabel = Object.fromEntries(entry.fields.map((f) => [f.label, f.value]))
     expect(entry.title).toBe(note.text)
     expect(byLabel['Meaning (Bangla)']).toBe(note.data!.meaning_bn)
-    expect(byLabel['Source']).toBe('Film')
-    expect(byLabel['Timestamp']).toBe('01:02:05')
-    expect(byLabel['Idioms / Phrasal verbs']).toBeUndefined()
+    expect(byLabel['Meaning (English)']).toBe(note.data!.meaning_en)
+    expect(entry.fields.map((f) => f.label).every((l) => ['Meaning (Bangla)', 'Meaning (English)', 'Example', 'Record ID'].includes(l))).toBe(true)
+    expect(entry.fields.filter((f) => f.label === 'Example').length).toBeLessThanOrEqual(1)
   })
 
   it('computes style ranges that match the inserted text', () => {

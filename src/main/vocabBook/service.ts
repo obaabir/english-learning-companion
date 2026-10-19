@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { normTerm } from '@shared/vocab'
 import {
   draftsFromOcrLines,
+  inTextOrder,
   markDuplicates,
-  parseWordList,
+  parseVocabText,
   sentenceWith,
   VB_SOURCE_KINDS,
   type VbDraft,
@@ -19,7 +21,7 @@ import type { Db } from '../db'
 import { getSetting, setSetting } from '../db/repos/settings'
 import { applyEnrichment, bookTerms, getBook, getItem, getSource, importItems, itemsNotInDoc, markEnrichError, markVbSyncError, markVbSynced, type ImportInput } from '../db/repos/vocabBook'
 import type { DocEntry } from '../google/docs'
-import type { VbEnrichResult, VbImageResult } from '../ai/gemini'
+import type { VbEnrichResult, VbImageResult, VbListResult } from '../ai/gemini'
 
 /** Offline OCR with the engine built into Windows (free, no internet). */
 const OCR_SCRIPT = `
@@ -76,7 +78,8 @@ export interface VbGemini {
   configured: boolean
   vocabFromImage(imageBase64: string, mimeType: string): Promise<VbImageResult>
   vocabFromText(text: string): Promise<{ items: { term: string; context: string }[] }>
-  enrichVocab(items: { id: number; term: string; context: string }[]): Promise<VbEnrichResult[]>
+  vocabFromList(text: string): Promise<VbListResult>
+  enrichVocab(items: { id: number; term: string; context: string; meaning?: string }[]): Promise<VbEnrichResult[]>
 }
 
 export interface VbGoogle {
@@ -129,7 +132,16 @@ export function createVocabBook(db: Db, deps: { gemini: VbGemini; google: VbGoog
       try {
         const r = await deps.gemini.vocabFromImage(args.imageBase64, args.mimeType)
         const drafts: VbDraft[] = (r?.items ?? [])
-          .map((i) => ({ term: (i.term ?? '').trim(), meaningBn: i.meaning_bn?.trim() || undefined, context: i.context?.trim() || undefined, uncertain: !!i.uncertain, note: i.note?.trim() || undefined }))
+          .map((i) => ({
+            term: (i.term ?? '').trim(),
+            meaningBn: i.meaning_bn?.trim() || undefined,
+            definitionEn: i.definition_en?.trim() || undefined,
+            pos: i.part_of_speech?.trim() || undefined,
+            synonyms: (i.synonyms ?? []).map((x) => x.trim()).filter(Boolean),
+            context: i.context?.trim() || undefined,
+            uncertain: !!i.uncertain,
+            note: i.note?.trim() || undefined
+          }))
           .filter((d) => d.term)
         const complete = !!r?.complete && drafts.length > 0
         return {
@@ -146,7 +158,7 @@ export function createVocabBook(db: Db, deps: { gemini: VbGemini; google: VbGoog
     }
     try {
       const lines = await ocr(join(deps.imagesDir, imageFile))
-      const { drafts, pageRef } = draftsFromOcrLines(lines)
+      const { drafts, pageRef, unknown } = draftsFromOcrLines(lines)
       const why = geminiError ? `Gemini could not read the picture (${geminiError.slice(0, 120)}), so Windows OCR (offline) was used. ` : 'Read with Windows OCR (offline). '
       return {
         drafts: markDuplicates(drafts, existing),
@@ -156,7 +168,8 @@ export function createVocabBook(db: Db, deps: { gemini: VbGemini; google: VbGoog
         warning: drafts.length ? `${why}Check every word against the picture before importing; meanings printed on the page are not separated reliably.` : `${why}No words were found.`,
         pageRef,
         imageFile,
-        rawText: lines.join('\n')
+        rawText: lines.join('\n'),
+        skipped: unknown
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -179,13 +192,68 @@ export function createVocabBook(db: Db, deps: { gemini: VbGemini; google: VbGoog
           pageRef: null
         }
       const r = await deps.gemini.vocabFromText(text)
-      const drafts = (r?.items ?? [])
-        .map((i) => ({ term: (i.term ?? '').trim(), context: (i.context ?? '').trim() || sentenceWith(text, i.term ?? '') || undefined }))
-        .filter((d) => d.term)
-      return { drafts: markDuplicates(drafts, existing), engine: 'gemini', complete: drafts.length > 0, warning: drafts.length ? null : 'No vocabulary was chosen from this text.', pageRef: null }
+      const { kept, dropped } = inTextOrder((r?.items ?? []).filter((i) => (i.term ?? '').trim()), text)
+      const drafts = kept.map((i) => ({ term: i.term.trim(), context: (i.context ?? '').trim() || sentenceWith(text, i.term) || undefined }))
+      return {
+        drafts: markDuplicates(drafts, existing),
+        engine: 'gemini',
+        complete: drafts.length > 0,
+        warning: !drafts.length ? 'No vocabulary was chosen from this text.' : dropped.length ? `${dropped.length} suggested word${dropped.length === 1 ? ' was' : 's were'} not in your text and left out.` : null,
+        pageRef: null
+      }
     }
-    const drafts = parseWordList(text)
-    return { drafts: markDuplicates(drafts, existing), engine: 'text', complete: drafts.length > 0, warning: drafts.length ? null : 'No words found. Put one word or phrase per line.', pageRef: null }
+    return extractList(text, existing)
+  }
+
+  /**
+   * A pasted or typed list: the app's own word finder (numbering, labels such as ইংরেজি অর্থ /
+   * বাংলা অর্থ / Synonyms, "word – meaning", mixed text). If some lines can't be placed (sentences,
+   * paragraphs, mixed text) and a Gemini key is set, Gemini finds the headwords; every word it returns
+   * must really be in your text and keeps its place in the text's order.
+   */
+  async function extractList(text: string, existing: { term: string; seq: number }[]): Promise<VbExtraction> {
+    const local = parseVocabText(text)
+    const done = (drafts: VbDraft[], engine: VbExtraction['engine'], warning: string | null, skipped: string[]): VbExtraction => ({
+      drafts: markDuplicates(drafts, existing),
+      engine,
+      complete: drafts.length > 0 && !warning,
+      warning: drafts.length ? warning : warning ?? 'No English words found. Put one word or phrase per line, or paste your list as it is.',
+      pageRef: null,
+      skipped
+    })
+    if (!local.unknown.length && local.drafts.length) return done(local.drafts, 'text', null, [])
+    if (deps.gemini.configured) {
+      try {
+        const r = await deps.gemini.vocabFromList(text)
+        const { kept, dropped } = inTextOrder((r?.items ?? []).filter((i) => (i.term ?? '').trim()), text)
+        const mine = new Map(local.drafts.map((d) => [normTerm(d.term), d]))
+        const drafts = kept.map((i): VbDraft => {
+          // What your text says (found by the app) comes first; Gemini fills what is missing.
+          const m = mine.get(normTerm(i.term))
+          const pick = (a: string | undefined, b: string | undefined): string | undefined => a?.trim() || b?.trim() || undefined
+          const syn = m?.synonyms?.length ? m.synonyms : (i.synonyms ?? []).map((x) => x.trim()).filter(Boolean)
+          return {
+            term: m?.term ?? i.term.trim(),
+            meaningBn: pick(m?.meaningBn, i.meaning_bn),
+            definitionEn: pick(m?.definitionEn, i.meaning_en),
+            pos: pick(m?.pos, i.part_of_speech),
+            synonyms: syn.length ? syn : undefined,
+            example: pick(m?.example, i.example),
+            exampleBn: pick(m?.exampleBn, i.example_bn)
+          }
+        })
+        return done(drafts, 'gemini', dropped.length ? `${dropped.length} suggested word${dropped.length === 1 ? ' was' : 's were'} not in your text and left out.` : null, [])
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return done(local.drafts, 'text', `Gemini could not read the text (${msg.slice(0, 100)}). ${local.unknown.length} line${local.unknown.length === 1 ? '' : 's'} could not be understood as a word or its meaning and ${local.unknown.length === 1 ? 'was' : 'were'} not used — see below.`, local.unknown)
+      }
+    }
+    return done(
+      local.drafts,
+      'text',
+      `${local.unknown.length} line${local.unknown.length === 1 ? '' : 's'} could not be understood as a word or its meaning and ${local.unknown.length === 1 ? 'was' : 'were'} not used — see below.${local.mixed ? ' English words found inside mixed Bangla-English lines are marked “Check”.' : ''} With a Gemini key, sentences, paragraphs and mixed text are read too.`,
+      local.unknown
+    )
   }
 
   // Meanings are filled in one batch at a time, in the background.
@@ -199,7 +267,7 @@ export function createVocabBook(db: Db, deps: { gemini: VbGemini; google: VbGoog
         const ids = queue.splice(0, 10)
         const items = ids.map((id) => getItem(db, id)).filter((i): i is VbItem => !!i)
         try {
-          const res = await deps.gemini.enrichVocab(items.map((i) => ({ id: i.id, term: i.term, context: i.context })))
+          const res = await deps.gemini.enrichVocab(items.map((i) => ({ id: i.id, term: i.term, context: i.context || i.example, meaning: i.definitionEn || i.meaningBn })))
           for (const i of items) {
             const r = res?.find((x) => x.id === i.id)
             if (!r) {

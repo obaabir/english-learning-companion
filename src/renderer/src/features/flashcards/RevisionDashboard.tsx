@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AlarmClock, CalendarClock, CalendarDays, Layers, Play, RotateCcw, Sparkles, Sprout, Trophy } from 'lucide-react'
 import type { Flashcard, RevisionDashboard as Dashboard } from '@shared/types'
-import { invoke } from '@renderer/lib/api'
+import { invoke, on } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Badge, Button, EmptyState, PanelHeader } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
@@ -46,6 +46,8 @@ export function RevisionDashboard({ modeSwitch, onStart }: { modeSwitch: ReactNo
   }
   useEffect(() => {
     void load()
+    // A word saved a moment ago (anywhere in the app) shows up here at once.
+    return on('learning:changed', () => void load())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

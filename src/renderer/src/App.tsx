@@ -57,12 +57,14 @@ export function App(): ReactNode {
       useApp.getState().setPage('articles')
       void useArticles.getState().receiveWeb(sel, 'chrome').catch(toastError)
     })
+    const offLearning = on('learning:changed', () => void refreshDue())
     const timer = setInterval(() => void refreshDue(), 60_000)
     return () => {
       offStatus()
       offLine()
       offDocs()
       offWeb()
+      offLearning()
       clearInterval(timer)
     }
   }, [])

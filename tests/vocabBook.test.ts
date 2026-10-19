@@ -23,7 +23,7 @@ import {
   updateBook
 } from '../src/main/db/repos/vocabBook'
 import { createVocabBook, vbDocEntry, windowsOcr } from '../src/main/vocabBook/service'
-import { blankSentence, buildTasks, draftsFromOcrLines, isVbMastered, markDuplicates, parseWordList, pickDistractors, sentenceWith, vbStatus, type VbAnswer } from '../src/shared/vocabBook'
+import { blankSentence, buildTasks, draftsFromOcrLines, isVbMastered, markDuplicates, parseVocabText, parseWordList, pickDistractors, sentenceWith, vbStatus, type VbAnswer } from '../src/shared/vocabBook'
 
 const DAY = 86_400_000
 const at = (base: Date, days: number, hours = 0): Date => new Date(base.getTime() + days * DAY + hours * 3_600_000)
@@ -321,4 +321,108 @@ describe('pictures: reviewed before import; uncertain words marked; Gemini, then
     expect(readdirSync(dir)).toContain('page.png')
     expect(readFileSync(file).length).toBeGreaterThan(100)
   }, 60_000)
+})
+
+describe('finding the English words in a pasted list (not line by line)', () => {
+  const USER_LIST = [
+    '৬. Inevitably',
+    '',
+    '• ইংরেজি অর্থ: As is certain to happen; unavoidably.',
+    '• বাংলা অর্থ: অনিবার্যভাবে।',
+    '• Synonyms: Unavoidably, Certainly, Invariably.',
+    '',
+    '৭. Vulnerable',
+    '',
+    '• ইংরেজি অর্থ: Easy to hurt or attack physically or emotionally.',
+    '• বাংলা অর্থ: অরক্ষিত / সহজে আঘাত পাওয়া সম্ভব এমন।',
+    '• Synonyms: Exposed, Defenceless, Susceptible.',
+    '',
+    '​8. Superficial',
+    '',
+    '• ইংরেজি অর্থ: Only on the surface; not deep or thorough.',
+    '• বাংলা অর্থ: ভাসা ভাসা।',
+    '• Synonyms: Shallow, Cursory, Surface-level.'
+  ].join('\n')
+
+  it('your list: three words in order; labels, meanings and synonyms attached to them, never words themselves', () => {
+    const r = parseVocabText(USER_LIST)
+    expect(r.unknown).toEqual([])
+    expect(r.drafts.map((d) => d.term)).toEqual(['Inevitably', 'Vulnerable', 'Superficial'])
+    expect(r.drafts[1]).toMatchObject({
+      definitionEn: 'Easy to hurt or attack physically or emotionally.',
+      meaningBn: 'অরক্ষিত / সহজে আঘাত পাওয়া সম্ভব এমন।',
+      synonyms: ['Exposed', 'Defenceless', 'Susceptible']
+    })
+    expect(r.drafts[2].synonyms).toEqual(['Shallow', 'Cursory', 'Surface-level'])
+  })
+
+  it('other list styles: inline meanings by script, (adj.), unlabelled meaning and example lines', () => {
+    const r = parseVocabText('1) Abundant (adj.) – প্রচুর\n2. candid: honest and direct\nmeticulous\nVery careful about small details.\nShe is meticulous about her notes.\nresilient অদম্য')
+    expect(r.unknown).toEqual([])
+    expect(r.drafts).toEqual([
+      { term: 'Abundant', pos: 'adj', meaningBn: 'প্রচুর' },
+      { term: 'candid', definitionEn: 'honest and direct' },
+      { term: 'meticulous', definitionEn: 'Very careful about small details.', example: 'She is meticulous about her notes.' },
+      { term: 'resilient', meaningBn: 'অদম্য' }
+    ])
+  })
+
+  it('mixed Bangla-English text: the English words are picked out and marked to check', () => {
+    const r = parseVocabText('আজ আমি resilient আর give up শব্দ দুটো শিখলাম।')
+    expect(r.drafts.map((d) => [d.term, d.uncertain])).toEqual([
+      ['resilient', true],
+      ['give up', true]
+    ])
+    expect(r.mixed).toBe(1)
+  })
+
+  it('a paragraph is not turned into "words" line by line: it is reported (Gemini reads it when a key is set)', () => {
+    const r = parseVocabText('The old farmer was frugal and never wasted anything. His neighbours admired his diligence.')
+    expect(r.drafts).toEqual([])
+    expect(r.unknown).toHaveLength(1)
+    expect(parseVocabText('Paragraph: The old farmer was frugal and never wasted anything.').drafts).toEqual([])
+  })
+
+  it('with Gemini: unclear text is read by Gemini; a word not in your text is dropped; text order kept; your details win', async () => {
+    const db = openDatabase(':memory:')
+    const b = createBook(db, 'B')
+    const text = 'Paragraph: The old farmer was frugal. His neighbours were destitute.\nfrugal – মিতব্যয়ী'
+    const vb = createVocabBook(db, {
+      gemini: {
+        configured: true,
+        vocabFromList: async () => ({
+          items: [
+            { term: 'destitute', part_of_speech: 'adj', meaning_en: 'very poor', meaning_bn: '', synonyms: [], example: '', example_bn: '' },
+            { term: 'frugal', part_of_speech: '', meaning_en: 'careful with money', meaning_bn: 'কৃপণ', synonyms: ['thrifty'], example: '', example_bn: '' },
+            { term: 'serendipity', part_of_speech: '', meaning_en: 'luck', meaning_bn: '', synonyms: [], example: '', example_bn: '' }
+          ]
+        })
+      } as never,
+      google: { connected: false } as never,
+      imagesDir: mkdtempSync(join(tmpdir(), 'vb-'))
+    })
+    const r = await vb.extractText({ bookId: b.id, kind: 'pasted', text })
+    expect(r.engine).toBe('gemini')
+    expect(r.drafts.map((d) => d.term)).toEqual(['frugal', 'destitute'])
+    expect(r.drafts[0]).toMatchObject({ meaningBn: 'মিতব্যয়ী', definitionEn: 'careful with money', synonyms: ['thrifty'] })
+    expect(r.warning).toMatch(/1 suggested word was not in your text/)
+  })
+
+  it('without Gemini: the clear words are kept, unclear lines are listed (not imported, not claimed as read)', async () => {
+    const db = openDatabase(':memory:')
+    const b = createBook(db, 'B')
+    const vb = createVocabBook(db, { gemini: { configured: false } as never, google: { connected: false } as never, imagesDir: mkdtempSync(join(tmpdir(), 'vb-')) })
+    const r = await vb.extractText({ bookId: b.id, kind: 'pasted', text: 'frugal\nThe old farmer saved every single coin he ever earned.' })
+    expect([r.drafts.map((d) => d.term), r.complete, r.skipped]).toEqual([['frugal'], false, ['The old farmer saved every single coin he ever earned.']])
+    const clean = await vb.extractText({ bookId: b.id, kind: 'pasted', text: USER_LIST })
+    expect([clean.drafts.length, clean.complete, clean.warning]).toEqual([3, true, null])
+  })
+
+  it('importing keeps the meanings, synonyms and examples found in your list', () => {
+    const db = openDatabase(':memory:')
+    const b = createBook(db, 'B')
+    importItems(db, { bookId: b.id, kind: 'pasted', drafts: parseVocabText(USER_LIST).drafts })
+    const v = listItems(db, b.id)[1]
+    expect([v.seq, v.term, v.definitionEn, v.meaningBn, v.synonyms]).toEqual([2, 'Vulnerable', 'Easy to hurt or attack physically or emotionally.', 'অরক্ষিত / সহজে আঘাত পাওয়া সম্ভব এমন।', ['Exposed', 'Defenceless', 'Susceptible']])
+  })
 })

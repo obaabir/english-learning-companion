@@ -220,8 +220,8 @@ export function deleteFlashcard(db: Db, id: number): void {
   db.prepare('DELETE FROM flashcards WHERE id = ?').run(id)
 }
 
-/** The revision dashboard: each list is capped at `limit` cards; counts are complete. */
-export function revisionDashboard(db: Db, now = new Date(), limit = 30): RevisionDashboard {
+/** The revision dashboard: every list is complete (nothing is cut off, so a word saved a moment ago is always there). */
+export function revisionDashboard(db: Db, now = new Date(), limit = Number.POSITIVE_INFINITY): RevisionDashboard {
   const cards = listFlashcards(db)
   const today = startOfDay(now).getTime()
   const tonight = endOfDay(now).getTime()

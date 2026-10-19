@@ -1,5 +1,4 @@
-import { normTerm } from '@shared/vocab'
-import { DOC_CATEGORIES, NOTE_KINDS, docCategoryForNote, formatTimestamp, type Note } from '@shared/types'
+import type { Note } from '@shared/types'
 
 export interface DocEntry {
   title: string
@@ -24,55 +23,23 @@ export type DocsRequest =
       }
     }
 
-const bullet = (s: string): string => `• ${s}`
-
 /** The line written into the doc that identifies a record, so it is never appended twice. */
 export const recordIdLine = (uid: string): string => `elc-${uid}`
 
-/** Markdown explanation as plain text for the doc (heading and bold marks removed). */
-const plain = (md: string): string =>
-  md
-    .replace(/^#{1,6}\s*/gm, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/^>\s?/gm, '')
-    .trim()
-
-export function noteToDocEntry(note: Note, now = new Date()): DocEntry {
+/**
+ * What goes into Google Docs for a saved item: just its Bangla meaning, English meaning and one example
+ * (with its Bangla line). Everything else stays in the app. The record ID line lets the app check, after
+ * a lost connection, whether the entry already arrived, so nothing is written twice.
+ */
+export function noteToDocEntry(note: Note): DocEntry {
   const d = note.data
-  const fields: DocEntry['fields'] = [
-    { label: 'Category', value: DOC_CATEGORIES.find((c) => c.value === docCategoryForNote(note))?.label ?? '' },
-    { label: 'Type', value: NOTE_KINDS.find((k) => k.value === note.kind)?.label ?? note.kind }
-  ]
-  // A sentence item names the word/phrase to learn from it (the same one its flashcard shows).
-  if (note.target && normTerm(note.target) !== normTerm(note.text)) fields.push({ label: 'Word to learn', value: note.target })
-  if (note.contextSentence && note.contextSentence !== note.text) {
-    fields.push({ label: 'Sentence', value: note.contextSentence })
-  }
+  const fields: DocEntry['fields'] = []
   if (d) {
     fields.push({ label: 'Meaning (Bangla)', value: d.meaning_bn })
     fields.push({ label: 'Meaning (English)', value: d.meaning_en })
-    fields.push({
-      label: 'Vocabulary',
-      value: d.vocabulary.map((v) => bullet(`${v.term} — ${v.meaning_bn}${v.note ? ` (${v.note})` : ''}`)).join('\n')
-    })
-    fields.push({
-      label: 'Idioms / Phrasal verbs',
-      value: d.idioms_phrasal.map((v) => bullet(`${v.term} — ${v.meaning_bn}${v.note ? ` (${v.note})` : ''}`)).join('\n')
-    })
-    fields.push({ label: 'Grammar', value: d.grammar.map((g) => bullet(`${g.pattern} — ${g.explanation}`)).join('\n') })
-    fields.push({ label: 'Examples', value: d.examples.map((e) => bullet(`${e.en}\n   ${e.bn}`)).join('\n') })
-    if (note.explanationMd) fields.push({ label: 'Explanation', value: plain(note.explanationMd).slice(0, 1500) })
-  } else if (note.explanationMd) {
-    fields.push({ label: 'Explanation', value: plain(note.explanationMd).slice(0, 5000) })
+    const ex = d.examples[0]
+    if (ex) fields.push({ label: 'Example', value: ex.bn ? `${ex.en}\n${ex.bn}` : ex.en })
   }
-  if (note.userNote) fields.push({ label: 'My note', value: note.userNote })
-  if (note.mediaTitle) fields.push({ label: 'Source', value: note.mediaTitle })
-  if (note.sourceUrl) fields.push({ label: 'Source URL', value: note.sourceUrl })
-  if (note.timestampSec != null) fields.push({ label: 'Timestamp', value: formatTimestamp(note.timestampSec) })
-  if (note.ieltsRef) fields.push({ label: 'IELTS question', value: note.ieltsRef })
-  // The date the item was saved (SQLite stores "YYYY-MM-DD HH:MM:SS" in UTC, or ISO).
-  const saved = note.createdAt ? new Date(note.createdAt.includes('T') ? note.createdAt : `${note.createdAt.replace(' ', 'T')}Z`) : now
-  fields.push({ label: 'Saved', value: (isNaN(saved.getTime()) ? now : saved).toISOString().slice(0, 10) })
   if (note.uid) fields.push({ label: 'Record ID', value: recordIdLine(note.uid) })
   return { title: note.text, fields: fields.filter((f) => f.value.trim()) }
 }

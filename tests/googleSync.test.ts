@@ -62,7 +62,7 @@ describe('Google Docs sync through the real GoogleService', () => {
     const synced = await sync.syncNote(n.id)
     expect(synced.syncStatus).toBe('synced')
     const doc = g.docs.get('doc-1')!
-    for (const k of ['resilient', 'Category: Article Vocabulary', 'Source URL: https://www.bbc.com/news/economy', 'Sentence: It proved resilient.', `Record ID: elc-${n.uid}`]) expect(doc).toContain(k)
+    for (const k of ['resilient', `Record ID: elc-${n.uid}`]) expect(doc).toContain(k)
     expect(g.requests.map((r) => r.method)).toEqual(['GET', 'POST']) // read end of doc, then one batchUpdate
   })
 
@@ -76,7 +76,7 @@ describe('Google Docs sync through the real GoogleService', () => {
     expect(getNote(db, n.id)).not.toBeNull()
     g.setMode('ok')
     expect(await sync.syncPending()).toEqual({ added: 1, error: null })
-    expect(g.docs.get('doc-1')!.match(/reluctant/g)?.length).toBe(2) // heading + sentence, appended once
+    expect(g.docs.get('doc-1')!.match(/reluctant/g)?.length).toBe(1) // the heading, appended once
   })
 
   it('expired sign-in → asks to reconnect', async () => {

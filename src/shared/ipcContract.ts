@@ -29,6 +29,7 @@ import type {
   Prompt,
   ReviewRating,
   SettingsUpdate,
+  SentenceWord,
   StudyContext,
   SubtitleLine
 } from './types'
@@ -97,6 +98,8 @@ export interface Api {
 
   /** Streams deltas over the `ai:chunk` event; resolves with the full text. */
   'ai:explain': (args: { requestId: string; promptId: number | null; context: StudyContext }) => Promise<string>
+  /** Movie Mode: the words and idioms of an explained sentence (Bangla meaning, easy synonyms, one example). */
+  'ai:sentenceWords': (sentence: string) => Promise<SentenceWord[]>
   'ai:listModels': () => Promise<string[]>
 
   'chats:list': () => Promise<Chat[]>
@@ -252,6 +255,8 @@ export interface Events {
   /** "Hey Jarvis" mode heard the wake phrase (alone, or with a command). */
   'voice:wakeHeard': { text: string; confidence: number }
   'voice:wakeState': { state: 'ready' | 'stopped' | 'error'; message?: string }
+  /** A word was saved / its flashcard made, edited or deleted: open lists reload. */
+  'learning:changed': Record<string, never>
   /** Vocabulary Book: meanings were filled in for some words of this book. */
   'vb:changed': { bookId: number }
   /** Voice Mode: state, spoken audio, transcripts, interruptions, tool activity. */

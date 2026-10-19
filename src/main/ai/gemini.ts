@@ -1,5 +1,5 @@
 import { GoogleGenAI, MediaResolution, ThinkingLevel, type Content, type Schema, type ThinkingConfig } from '@google/genai'
-import type { ChatFocus, FlashcardBack, Note, NoteData, PracticeItem, StudyContext } from '@shared/types'
+import type { ChatFocus, FlashcardBack, Note, NoteData, PracticeItem, SentenceWord, StudyContext } from '@shared/types'
 import { PRACTICE_INSTRUCTION, PRACTICE_SCHEMA } from './practice'
 import { targetMeaning } from '@shared/vocab'
 import {
@@ -16,13 +16,17 @@ import {
 } from './schemas'
 import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from '@shared/fsp'
 import { FSP_CHECK_INSTRUCTION, FSP_CHECK_SCHEMA, FSP_EXAMPLE_INSTRUCTION, FSP_EXAMPLE_SCHEMA, FSP_LESSON_INSTRUCTION, FSP_LESSON_SCHEMA } from './fspSchemas'
-import { VB_ENRICH_INSTRUCTION, VB_ENRICH_SCHEMA, VB_IMAGE_INSTRUCTION, VB_IMAGE_SCHEMA, VB_TEXT_INSTRUCTION, VB_TEXT_SCHEMA } from './vocabBookSchemas'
+import { VB_ENRICH_INSTRUCTION, VB_ENRICH_SCHEMA, VB_IMAGE_INSTRUCTION, VB_IMAGE_SCHEMA, VB_LIST_INSTRUCTION, VB_LIST_SCHEMA, VB_TEXT_INSTRUCTION, VB_TEXT_SCHEMA } from './vocabBookSchemas'
+import { SENTENCE_WORDS_INSTRUCTION, SENTENCE_WORDS_SCHEMA } from './sentenceWordsSchema'
 
 export interface VbImageResult {
-  items: { term: string; meaning_bn: string; context: string; uncertain: boolean; note: string }[]
+  items: { term: string; meaning_bn: string; definition_en?: string; part_of_speech?: string; synonyms?: string[]; context: string; uncertain: boolean; note: string }[]
   page_ref: string
   complete: boolean
   warning: string
+}
+export interface VbListResult {
+  items: { term: string; part_of_speech: string; meaning_en: string; meaning_bn: string; synonyms: string[]; example: string; example_bn: string }[]
 }
 export interface VbEnrichResult {
   id: number
@@ -551,6 +555,19 @@ export class GeminiService {
     return this.json(YOUR_TURN_INSTRUCTION, `Phrases: ${phrases.join(', ')}\nLearner's sentence: "${sentence}"`, YOUR_TURN_SCHEMA, true)
   }
 
+  /** Movie Mode: the words and idioms of one sentence, each with Bangla meaning, easy synonyms and an example. */
+  async sentenceWords(sentence: string): Promise<SentenceWord[]> {
+    const r = await this.json<{ items?: { term: string; kind: SentenceWord['kind']; meaning_bn: string; synonyms: string[]; example: string }[] }>(
+      SENTENCE_WORDS_INSTRUCTION,
+      `Sentence: "${sentence.slice(0, 1000)}"`,
+      SENTENCE_WORDS_SCHEMA,
+      true
+    )
+    return (r?.items ?? [])
+      .filter((i) => i.term?.trim())
+      .map((i) => ({ term: i.term.trim(), kind: i.kind, meaningBn: i.meaning_bn?.trim() ?? '', synonyms: (i.synonyms ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3), example: i.example?.trim() ?? '' }))
+  }
+
   /** Vocabulary Book: the words visible in a picture, in reading order; unclear ones are marked uncertain. */
   async vocabFromImage(imageBase64: string, mimeType: string): Promise<VbImageResult> {
     return this.resilient(async (model) => {
@@ -563,13 +580,18 @@ export class GeminiService {
     })
   }
 
+  /** Vocabulary Book: the English headwords of a pasted list / text (with the details it gives), in order. */
+  vocabFromList(text: string): Promise<VbListResult> {
+    return this.json(VB_LIST_INSTRUCTION, text.slice(0, 30_000), VB_LIST_SCHEMA, true)
+  }
+
   /** Vocabulary Book: useful words from a story or passage, in order, each with its sentence. */
   vocabFromText(text: string): Promise<{ items: { term: string; context: string }[] }> {
     return this.json(VB_TEXT_INSTRUCTION, text.slice(0, 30_000), VB_TEXT_SCHEMA, true)
   }
 
   /** Vocabulary Book: meaning (in its context), definition, part of speech, example, synonyms, collocations. */
-  enrichVocab(items: { id: number; term: string; context: string }[]): Promise<VbEnrichResult[]> {
+  enrichVocab(items: { id: number; term: string; context: string; meaning?: string }[]): Promise<VbEnrichResult[]> {
     return this.json(VB_ENRICH_INSTRUCTION, JSON.stringify(items), VB_ENRICH_SCHEMA, true)
   }
 

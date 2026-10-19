@@ -4,8 +4,11 @@ import { Type, type Schema } from '@google/genai'
 
 export const VB_IMAGE_INSTRUCTION = `You read a photo of a vocabulary book page or an image with an English word list, for a Bangla-speaking learner.
 List the English vocabulary items that are visible, in reading order (top to bottom, column by column). Keep numbering order if the page is numbered.
-- term: the English word or phrase exactly as printed (no numbering, no part-of-speech labels).
+- term: the English word or phrase exactly as printed (no numbering, no part-of-speech labels). Labels, meanings, synonyms and example sentences are NEVER terms.
 - meaning_bn: the Bangla meaning only if it is printed on the page; otherwise "".
+- definition_en: the English meaning / definition only if printed; otherwise "".
+- part_of_speech: only if printed (n., v., adj. …); otherwise "".
+- synonyms: synonyms printed for the word (may be empty).
 - context: an example sentence printed next to the word, if any; otherwise "".
 - uncertain: true if the text is blurry, cut off, partly hidden, or you are guessing any letter.
 - note: why it is uncertain (short), or "".
@@ -24,12 +27,15 @@ export const VB_IMAGE_SCHEMA: Schema = {
         properties: {
           term: { type: Type.STRING },
           meaning_bn: { type: Type.STRING },
+          definition_en: { type: Type.STRING },
+          part_of_speech: { type: Type.STRING },
+          synonyms: { type: Type.ARRAY, items: { type: Type.STRING } },
           context: { type: Type.STRING },
           uncertain: { type: Type.BOOLEAN },
           note: { type: Type.STRING }
         },
-        required: ['term', 'meaning_bn', 'context', 'uncertain', 'note'],
-        propertyOrdering: ['term', 'meaning_bn', 'context', 'uncertain', 'note']
+        required: ['term', 'meaning_bn', 'definition_en', 'part_of_speech', 'synonyms', 'context', 'uncertain', 'note'],
+        propertyOrdering: ['term', 'meaning_bn', 'definition_en', 'part_of_speech', 'synonyms', 'context', 'uncertain', 'note']
       }
     },
     page_ref: { type: Type.STRING },
@@ -64,7 +70,7 @@ export const VB_TEXT_SCHEMA: Schema = {
 }
 
 export const VB_ENRICH_INSTRUCTION = `You teach English vocabulary to a Bangla-speaking learner. For each item you get the word or phrase, and sometimes the sentence (context) it came from.
-If a context is given, explain the meaning the word has IN THAT CONTEXT (not another meaning).
+If a context is given, explain the meaning the word has IN THAT CONTEXT (not another meaning). If a meaning is given (from the learner's own list), keep to exactly that meaning.
 For each item return:
 - id (as given),
 - meaning_bn: short natural Bangla meaning,
@@ -92,4 +98,36 @@ export const VB_ENRICH_SCHEMA: Schema = {
     required: ['id', 'meaning_bn', 'definition_en', 'pos', 'example', 'example_bn', 'synonyms', 'collocations'],
     propertyOrdering: ['id', 'meaning_bn', 'definition_en', 'pos', 'example', 'example_bn', 'synonyms', 'collocations']
   }
+}
+
+export const VB_LIST_INSTRUCTION = `A Bangla-speaking learner pasted text containing English vocabulary to learn. It may be a numbered list (English or Bangla digits, bullets), headwords with labelled lines (English meaning / ইংরেজি অর্থ, Bangla meaning / বাংলা অর্থ, Synonyms / সমার্থক শব্দ, Example / উদাহরণ …), "word – meaning" lines, full sentences, paragraphs, or mixed Bangla-English text.
+Find the English vocabulary items (the headwords the learner wants to learn), in the order they appear.
+- Labels, meanings, synonyms, antonyms and example sentences are NEVER separate items: put them in the item's fields.
+- term: the English word or phrase exactly as written in the text (without numbering, bullets or part-of-speech labels).
+- If the text is ordinary prose (not a list), pick the words and phrases a learner would want to learn, in order; skip very basic words and names.
+- Copy the details the text gives for each item; use "" or [] when the text gives none. Never invent meanings, synonyms or examples:
+  part_of_speech, meaning_en (English meaning/definition), meaning_bn (Bangla meaning), synonyms, example (example sentence), example_bn (its Bangla translation).`
+
+export const VB_LIST_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          term: { type: Type.STRING },
+          part_of_speech: { type: Type.STRING },
+          meaning_en: { type: Type.STRING },
+          meaning_bn: { type: Type.STRING },
+          synonyms: { type: Type.ARRAY, items: { type: Type.STRING } },
+          example: { type: Type.STRING },
+          example_bn: { type: Type.STRING }
+        },
+        required: ['term', 'part_of_speech', 'meaning_en', 'meaning_bn', 'synonyms', 'example', 'example_bn'],
+        propertyOrdering: ['term', 'part_of_speech', 'meaning_en', 'meaning_bn', 'synonyms', 'example', 'example_bn']
+      }
+    }
+  },
+  required: ['items']
 }

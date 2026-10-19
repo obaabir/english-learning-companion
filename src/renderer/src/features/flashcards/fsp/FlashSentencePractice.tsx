@@ -28,7 +28,7 @@ import type {
   FspErrorType,
   FspLesson,
 } from "@shared/fsp";
-import { invoke } from "@renderer/lib/api";
+import { invoke, on } from "@renderer/lib/api";
 import { useApp } from "@renderer/stores/app";
 import {
   Badge,
@@ -93,14 +93,17 @@ export function FlashSentencePractice({
   // Your saved words (the flashcards made from Movie Mode / YouTube notes) become practice cards.
   useEffect(() => {
     void moveImportedToCollection();
-    void invoke("flashcards:list")
-      .then((list) => {
-        const { cards, setCards } = useFsp.getState();
-        const next = syncSaved(cards, cardsFromSaved(list));
-        if (JSON.stringify(next) !== JSON.stringify(cards)) setCards(next);
-      })
-      .catch(() => undefined)
-      .finally(() => setLoaded(true));
+    const syncFromSaved = (): Promise<void> =>
+      invoke("flashcards:list")
+        .then((list) => {
+          const { cards, setCards } = useFsp.getState();
+          const next = syncSaved(cards, cardsFromSaved(list));
+          if (JSON.stringify(next) !== JSON.stringify(cards)) setCards(next);
+        })
+        .catch(() => undefined);
+    void syncFromSaved().finally(() => setLoaded(true));
+    // A word saved a moment ago becomes a practice card at once.
+    return on("learning:changed", () => void syncFromSaved());
   }, []);
 
   // Close a Speak panel opened from here when leaving this mode.

@@ -245,8 +245,15 @@ export function mistakePriority(i: Pick<VbItem, 'mistakes' | 'openMistakes' | 'l
 export interface VbDraft {
   term: string
   meaningBn?: string
+  /** English meaning / definition given with the word. */
+  definitionEn?: string
+  pos?: string
+  synonyms?: string[]
+  collocations?: string[]
+  example?: string
+  exampleBn?: string
   context?: string
-  /** The reader wasn't sure (blurry, cut off …): check it before importing. */
+  /** The reader wasn't sure (blurry, cut off, found inside mixed text …): check it before importing. */
   uncertain?: boolean
   note?: string
   /** Already in this book (its number), so it isn't added twice by accident. */
@@ -265,50 +272,289 @@ export interface VbExtraction {
   imageFile?: string | null
   /** What the OCR read (to compare). */
   rawText?: string
+  /** Lines of your text that are not a word or a detail of a word (not used; shown to you). */
+  skipped?: string[]
 }
 
-const NUMBERING = /^\s*(?:\(?\d{1,4}[.)\]:-]|\(?[a-zA-Z][.)]|[-•*–·▪◦])\s+/
+// ---- Finding the English words in a pasted / typed / OCR text
+
+/** Characters copied text often carries that are invisible (zero-width, direction marks, BOM). */
+const INVISIBLE = /[​-‏‪-‮⁠-⁤﻿­]/g
+const BENGALI = /[ঀ-৿]/
+const LATIN = /[A-Za-z]/
+/** Numbering (English or Bangla digits, letters, roman numerals) and bullets at the start of a line. */
+const LEAD =
+  /^\s*(?:[#>]+\s*)?(?:(?:\(?\p{Nd}{1,4}\s*[.)\]:।\-–]|\(?[a-zA-Z][.)]|\(?(?:i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii)[.)])\s+|\p{Nd}{1,4}\s*[.)।]\s*(?=\p{L})|[-•*–·▪◦●○■□➤►✓✔→]\s*)+/iu
+const POS_PAREN =
+  /\s*[([]\s*(n|v|adj|adv|prep|conj|pron|interj|det|phr\.?\s*v|phrasal\s*verb|noun|verb|adjective|adverb|idiom|phrase|preposition|conjunction|pronoun)\.?\s*[)\]]/i
+const SENTENCE_END = /[.!?]["”’']?$/
+/** Starts like a story sentence ("The farmer…", "He saved…") rather than a dictionary meaning. */
+const SENTENCE_START = /^(the|i|he|she|they|we|you|it|his|her|my|our|their|this|that|these|those|there)\b/i
+/** Several sentences ("… frugal. His …"): a passage, not a meaning. */
+const MANY_SENTENCES = /[.!?]["”’']?\s+[A-Z]/
+
+type Field = 'bn' | 'en' | 'meaning' | 'syn' | 'ex' | 'exbn' | 'pos' | 'col' | 'word' | 'ignore'
+/** Labels used in vocabulary lists (English and Bangla). "meaning" goes to Bangla or English by its script. */
+const LABELS: [RegExp, Field][] = [
+  [/^((bangla|bengali|bn)(\s*meaning)?|meaning\s*\((bangla|bengali|bn)\)|বাংলা(\s*অর্থ)?|বাংলা\s*মানে)$/i, 'bn'],
+  [/^(english(\s*(meaning|definition))?|meaning\s*\((en|english)\)|definition|def|ইংরেজি(\s*(অর্থ|সংজ্ঞা|মানে))?|সংজ্ঞা)$/i, 'en'],
+  [/^(meaning|meanings|অর্থ|মানে)$/i, 'meaning'],
+  [/^(synonyms?|similar(\s*words?)?|syn|সমার্থক(\s*শব্দ)?|প্রতিশব্দ)$/i, 'syn'],
+  [/^(antonyms?|opposites?|ant|বিপরীত(\s*শব্দ)?|বিপরীতার্থক(\s*শব্দ)?)$/i, 'ignore'],
+  [/^(examples?|example\s*sentences?|sentence|e\.?\s*g\.?|usage|উদাহরণ(\s*বাক্য)?|বাক্য)$/i, 'ex'],
+  [/^(((bangla|bengali)\s*)?translation|(বাংলা\s*)?অনুবাদ)$/i, 'exbn'],
+  [/^(part\s*of\s*speech|parts?\s*of\s*speech|pos|word\s*class|পদ)$/i, 'pos'],
+  [/^(collocations?|common\s*collocations?|common\s*phrases?)$/i, 'col'],
+  [/^(word|term|vocabulary|headword|শব্দ)$/i, 'word'],
+  [/^(pronunciation|ipa|উচ্চারণ|notes?|tips?|origin|etymology|level|type|category)$/i, 'ignore']
+]
+/** A label we don't know, but that clearly describes a word (e.g. "Meaning in context"). */
+const LABEL_HINT = /\b(meaning|example|synonym|antonym|definition|translation|usage|note|pronunciation)s?\b|অর্থ|উদাহরণ|সমার্থক|বিপরীত/i
+const STOP = new Set(
+  'a an the i you he she it we they me him her us them my your his its our their is am are was were be been being do does did have has had to of in on at for with by from and or but so not no yes this that these those there here what which who whom whose when where why how as if than then too very just also only can could will would shall should may might must ok okay'.split(' ')
+)
+
+const words = (s: string): string[] => s.trim().split(/\s+/).filter(Boolean)
+const clean = (raw: string): string =>
+  raw
+    .replace(INVISIBLE, '')
+    .replace(/\*\*|__|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+const stripLead = (s: string): string => s.replace(LEAD, '').trim()
+
+/** An English word or phrase that can be learned (not a sentence, no Bangla, not a label). */
+function asTerm(s: string): { term: string; pos?: string } | null {
+  let t = stripLead(s)
+  let pos: string | undefined
+  const p = t.match(POS_PAREN)
+  if (p) {
+    pos = p[1].toLowerCase().replace(/\.$/, '')
+    t = t.replace(POS_PAREN, ' ')
+  }
+  t = t
+    .replace(/^["“‘'(\[]+|["”’')\]]+$/g, '')
+    .replace(/[.,;:!?]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!t || BENGALI.test(t) || !LATIN.test(t)) return null
+  if (!/^[A-Za-z][A-Za-z'’\-\s.()/]*$/.test(t)) return null
+  const n = words(t).length
+  if (n > 6 || t.length > 60) return null
+  if (STOP.has(t.toLowerCase())) return null
+  return { term: t, pos }
+}
+
+function labelOf(label: string): Field | null {
+  const l = clean(label).replace(/[.:：\-–]+$/, '').trim()
+  for (const [re, f] of LABELS) if (re.test(l)) return f
+  return null
+}
+
+const list = (s: string): string[] =>
+  s
+    .split(/\s*(?:[,;/、]|\bor\b)\s*/)
+    .map((x) => x.replace(/[.]+$/, '').trim())
+    .filter((x) => x && LATIN.test(x) && !BENGALI.test(x))
+    .slice(0, 8)
+
+export interface ParsedVocab {
+  drafts: VbDraft[]
+  /** Lines that are neither a word nor a detail of a word (kept out; shown to you). */
+  unknown: string[]
+  /** Lines of mixed Bangla-English text from which English words were picked out (to check). */
+  mixed: number
+}
 
 /**
- * A pasted or typed list: one word or phrase per line, optionally "word | meaning", "word - meaning",
- * "word: meaning" or "word = meaning". Numbering and bullets are removed; the order is kept.
+ * Finds the English vocabulary in a pasted, typed or OCR-read text and keeps its order. It
+ * understands numbered lists (English or Bangla digits, bullets), headwords followed by labelled
+ * lines (English meaning / ইংরেজি অর্থ, Bangla meaning / বাংলা অর্থ, Synonyms, Example …), inline
+ * "word – meaning" pairs and "(adj.)" labels. Labels, meanings, synonyms and examples are attached to
+ * their word — never turned into words. Anything it can't place is reported, not imported.
  */
-export function parseWordList(text: string): VbDraft[] {
-  const out: VbDraft[] = []
-  for (const raw of text.split(/\r?\n/)) {
-    let line = raw.replace(NUMBERING, '').replace(/\s+/g, ' ').trim()
-    if (!line) continue
-    let meaning: string | undefined
-    const sep = line.match(/\s*(?:\||\s[-–—]\s|:\s|=)\s*/)
-    if (sep && sep.index && sep.index > 0) {
-      meaning = line.slice(sep.index + sep[0].length).trim() || undefined
-      line = line.slice(0, sep.index).trim()
-    }
-    line = line.replace(/[.,;]+$/, '').trim()
-    if (!line || line.split(' ').length > 8) continue
-    out.push({ term: line, ...(meaning ? { meaningBn: meaning } : {}) })
+export function parseVocabText(text: string): ParsedVocab {
+  const drafts: VbDraft[] = []
+  const unknown: string[] = []
+  let mixed = 0
+  let cur: VbDraft | null = null
+  /** The current word's details are still being read (a following unlabelled line may be its meaning). */
+  let justStarted = false
+
+  const start = (term: string, pos?: string): VbDraft => {
+    cur = { term, ...(pos ? { pos } : {}) }
+    drafts.push(cur)
+    justStarted = true
+    return cur
   }
-  return out
+  const setMeaning = (d: VbDraft, value: string, field: 'bn' | 'en' | 'meaning'): void => {
+    const v = value.replace(/^[-–—:]\s*/, '').trim()
+    if (!v) return
+    const toBn = field === 'bn' || (field === 'meaning' && BENGALI.test(v))
+    if (toBn) d.meaningBn = d.meaningBn ? `${d.meaningBn}; ${v}` : v
+    else d.definitionEn = d.definitionEn ? `${d.definitionEn}; ${v}` : v
+  }
+  const detail = (d: VbDraft, field: Field, value: string): void => {
+    switch (field) {
+      case 'bn':
+      case 'en':
+      case 'meaning':
+        return setMeaning(d, value, field)
+      case 'syn':
+        d.synonyms = [...(d.synonyms ?? []), ...list(value)].slice(0, 8)
+        return
+      case 'col':
+        d.collocations = [...(d.collocations ?? []), ...list(value)].slice(0, 8)
+        return
+      case 'ex':
+        if (!d.example) d.example = value.replace(/^["“]|["”]$/g, '').trim()
+        return
+      case 'exbn':
+        if (!d.exampleBn) d.exampleBn = value.trim()
+        return
+      case 'pos':
+        if (!d.pos) d.pos = value.trim().toLowerCase()
+        return
+    }
+  }
+
+  for (const raw of text.split(/\r?\n/)) {
+    const line = stripLead(clean(raw))
+    if (!line || /^[-–—_=*~.·•]+$/.test(line)) continue
+
+    // "Label: value"
+    const lab = line.match(/^([^:：|=]{1,32}?)\s*[:：]\s*(.*)$/)
+    if (lab) {
+      const field = labelOf(lab[1]) ?? (cur && LABEL_HINT.test(lab[1]) ? 'ignore' : null)
+      if (field === 'word') {
+        const t = asTerm(lab[2])
+        if (t) start(t.term, t.pos)
+        else unknown.push(raw.trim())
+        continue
+      }
+      if (field) {
+        if (cur && field !== 'ignore') detail(cur, field, lab[2])
+        else if (!cur) unknown.push(raw.trim())
+        justStarted = false
+        continue
+      }
+    }
+
+    // "word – meaning", "word | meaning", "word: meaning", "word = meaning", "word<TAB>meaning"
+    const sep = line.match(/\s*(?:\||\t|\s[-–—]\s|[-–—](?=\s*[ঀ-৿])|:\s*|=)\s*/)
+    if (sep && sep.index && sep.index > 0) {
+      const t = asTerm(line.slice(0, sep.index))
+      const rest = line.slice(sep.index + sep[0].length).trim()
+      // "Paragraph: The old farmer was frugal …" is a passage, not "word: meaning".
+      const story = MANY_SENTENCES.test(rest) || (SENTENCE_START.test(rest) && words(rest).length >= 5)
+      if (t && rest && !story && words(rest).length <= 25) {
+        const d = start(t.term, t.pos)
+        setMeaning(d, rest, 'meaning')
+        justStarted = false
+        continue
+      }
+    }
+
+    // A headword on its own line (maybe with "(adj.)").
+    const t = asTerm(line)
+    if (t && !(words(t.term).length > 3 && SENTENCE_END.test(line))) {
+      start(t.term, t.pos)
+      continue
+    }
+
+    // "Vulnerable অরক্ষিত": an English word followed by its Bangla meaning.
+    const pair = line.match(/^([A-Za-z][A-Za-z'’\- ]{0,60}?(?:\s*\([^)]{1,20}\))?)\s+([ঀ-৿].*)$/)
+    if (pair) {
+      const t2 = asTerm(pair[1])
+      if (t2) {
+        const d = start(t2.term, t2.pos)
+        setMeaning(d, pair[2], 'bn')
+        justStarted = false
+        continue
+      }
+    }
+
+    const hasBn = BENGALI.test(line)
+    const hasLatin = LATIN.test(line)
+    // A Bangla line right under a word: its Bangla meaning.
+    if (hasBn && !hasLatin && cur && !(cur as VbDraft).meaningBn) {
+      ;(cur as VbDraft).meaningBn = line
+      justStarted = false
+      continue
+    }
+    // An English sentence under a word: its example (if it uses the word) or its meaning.
+    if (!hasBn && hasLatin && cur) {
+      const d = cur as VbDraft
+      if (!d.example && blankSentence(line, d.term)) {
+        d.example = line
+        justStarted = false
+        continue
+      }
+      if (justStarted && !d.definitionEn && !SENTENCE_START.test(line) && !MANY_SENTENCES.test(line)) {
+        d.definitionEn = line
+        justStarted = false
+        continue
+      }
+    }
+    // Mixed Bangla-English text: the English words in it are picked out (marked to check).
+    if (hasBn && hasLatin) {
+      const runs = line.match(/[A-Za-z][A-Za-z'’\-]*(?:\s+[A-Za-z][A-Za-z'’\-]*){0,3}/g) ?? []
+      const picked = runs.map((r) => asTerm(r)).filter((x): x is { term: string; pos?: string } => !!x)
+      if (picked.length) {
+        mixed++
+        for (const p of picked) {
+          const d = start(p.term, p.pos)
+          d.uncertain = true
+          d.note = 'found inside mixed text'
+        }
+        justStarted = false
+        unknown.push(raw.trim())
+        continue
+      }
+    }
+    unknown.push(raw.trim())
+  }
+  // A "word" that is really a label left alone (e.g. "Synonyms") is not kept.
+  return { drafts: drafts.filter((d) => !labelOf(d.term)), unknown, mixed }
+}
+
+/** The words of a pasted / typed list (see parseVocabText). */
+export function parseWordList(text: string): VbDraft[] {
+  return parseVocabText(text).drafts
 }
 
 /**
  * Lines read by Windows OCR → words. A heading such as "Unit 7 - Page 42" becomes the page
- * reference; everything is marked "check" because offline OCR gives no certainty per word.
+ * reference; every word is marked "check" because offline OCR gives no certainty per word.
  */
-export function draftsFromOcrLines(lines: string[]): { drafts: VbDraft[]; pageRef: string | null } {
+export function draftsFromOcrLines(lines: string[]): { drafts: VbDraft[]; pageRef: string | null; unknown: string[] } {
   let pageRef: string | null = null
   const kept: string[] = []
   for (const l of lines) {
-    const line = l.trim()
+    const line = clean(l)
     if (!line) continue
-    if (!pageRef && /\b(page|p\.|unit|lesson|chapter)\s*\d+/i.test(line) && !NUMBERING.test(line)) {
+    if (!pageRef && /\b(page|p\.|unit|lesson|chapter)\s*\d+/i.test(line) && !LEAD.test(line)) {
       pageRef = line
       continue
     }
     kept.push(line)
   }
-  const drafts = parseWordList(kept.join('\n')).map((d) => ({ ...d, uncertain: true }))
-  return { drafts, pageRef }
+  const r = parseVocabText(kept.join('\n'))
+  return { drafts: r.drafts.map((d) => ({ ...d, uncertain: true })), pageRef, unknown: r.unknown }
+}
+
+/** Keeps only words that really occur in the text (an AI suggestion that isn't there is dropped), in text order. */
+export function inTextOrder<T extends { term: string }>(items: T[], text: string): { kept: T[]; dropped: string[] } {
+  const hay = clean(text).toLowerCase().replace(/[’]/g, "'")
+  const found: { item: T; at: number }[] = []
+  const dropped: string[] = []
+  for (const item of items) {
+    const needle = clean(item.term).toLowerCase().replace(/[’]/g, "'")
+    const at = needle ? hay.indexOf(needle) : -1
+    if (at < 0) dropped.push(item.term)
+    else found.push({ item, at })
+  }
+  return { kept: found.sort((a, b) => a.at - b.at).map((f) => f.item), dropped }
 }
 
 /** The sentence of a passage that contains the word (for its context). */

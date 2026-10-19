@@ -230,7 +230,8 @@ export function importItems(db: Db, input: ImportInput): { source: VbSource | nu
     const have = new Set(bookTerms(db, input.bookId).map((t) => normTerm(t.term)))
     let seq = (db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM vb_items WHERE book_id = ?').get(input.bookId) as { m: number }).m
     const ins = db.prepare(
-      'INSERT INTO vb_items (uid, book_id, source_id, seq, term, original_term, meaning_bn, context, page_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      `INSERT INTO vb_items (uid, book_id, source_id, seq, term, original_term, meaning_bn, definition_en, pos, context, example, example_bn, synonyms_json, collocations_json, page_ref)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     const added: number[] = []
     const skipped: string[] = []
@@ -244,7 +245,23 @@ export function importItems(db: Db, input: ImportInput): { source: VbSource | nu
       }
       have.add(key)
       seq++
-      const r = ins.run(randomUUID(), input.bookId, sourceId, seq, term, term, d.meaningBn?.trim() ?? '', d.context?.trim() ?? '', input.pageRef?.trim() || null)
+      const r = ins.run(
+        randomUUID(),
+        input.bookId,
+        sourceId,
+        seq,
+        term,
+        term,
+        d.meaningBn?.trim() ?? '',
+        d.definitionEn?.trim() ?? '',
+        d.pos?.trim() ?? '',
+        d.context?.trim() ?? '',
+        d.example?.trim() ?? '',
+        d.exampleBn?.trim() ?? '',
+        JSON.stringify((d.synonyms ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 8)),
+        JSON.stringify((d.collocations ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 8)),
+        input.pageRef?.trim() || null
+      )
       added.push(Number(r.lastInsertRowid))
     }
     if (!added.length) {

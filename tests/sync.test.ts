@@ -94,10 +94,11 @@ describe('Google Docs sync', () => {
     for (const n of [w, i, s]) expect((await sync.syncNote(n.id)).syncStatus).toBe('synced')
     expect(g.docs.get('doc-art')).toHaveLength(1)
     expect(g.docs.get('doc-idioms')).toHaveLength(1)
-    expect(g.docs.get('doc-movie')![0]).toContain('Timestamp: 00:01:01')
+    expect(g.docs.get('doc-movie')![0]).toContain('I should have known.')
     const entry = g.docs.get('doc-art')![0]
-    for (const k of ['resilient', 'Category: Article Vocabulary', 'Source: Markets', 'Source URL: https://bbc.com/a', 'Sentence: It proved resilient.', `Record ID: elc-${w.uid}`]) expect(entry).toContain(k)
-    expect(entry).toMatch(/Saved: \d{4}-\d{2}-\d{2}/)
+    for (const k of ['resilient', `Record ID: elc-${w.uid}`]) expect(entry).toContain(k)
+    // Only meanings and one example go to the doc now (the app keeps the rest).
+    for (const k of ['Category:', 'Source:', 'Source URL:', 'Sentence:', 'Saved:', 'Timestamp:']) expect(entry).not.toContain(k)
   })
 
   it('changing a destination sends new items to the new doc', async () => {
@@ -166,9 +167,9 @@ describe('Google Docs sync', () => {
     expect(n.gdocSyncedAt).toBeNull()
   })
 
-  it('doc entries show the saved date of the record', () => {
-    const entry = noteToDocEntry({ ...insertNote(openDatabase(':memory:'), { kind: 'word', text: 'x' }, null), createdAt: '2026-01-02T03:04:05.000Z' })
-    expect(entry.fields.find((f) => f.label === 'Saved')?.value).toBe('2026-01-02')
+  it('doc entries: meanings and one example only', () => {
+    const n = insertNote(openDatabase(':memory:'), { kind: 'word', text: 'x' }, { meaning_bn: 'ক', meaning_en: 'x', vocabulary: [], idioms_phrasal: [], grammar: [], examples: [{ en: 'One.', bn: 'এক।' }, { en: 'Two.', bn: 'দুই।' }] })
+    expect(noteToDocEntry(n).fields.map((f) => `${f.label}: ${f.value}`).slice(0, 3)).toEqual(['Meaning (Bangla): ক', 'Meaning (English): x', 'Example: One.\nএক।'])
   })
 })
 

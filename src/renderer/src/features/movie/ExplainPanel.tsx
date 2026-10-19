@@ -20,7 +20,8 @@ import {
 import { NOTE_KINDS, formatTimestamp, type NoteKind, type StudyContext } from '@shared/types'
 import { errorMessage, invoke, newRequestId, on, streamCall } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
-import { contextLines, getSelection, useStudy, useStudyStore, type StudyActions, type StudySelection } from '@renderer/stores/movie'
+import { contextLines, getSelection, useMovie, useStudy, useStudyStore, type StudyActions, type StudySelection } from '@renderer/stores/movie'
+import { SentenceWords } from './SentenceWords'
 import { useChat } from '@renderer/stores/chat'
 import { CHAT_MAX, CHAT_MIN, toggleChatExpanded, useLayout } from '@renderer/stores/layout'
 import { focusFromSelection } from '@renderer/lib/chatFocus'
@@ -181,6 +182,7 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
   const { toast, toastError, refreshDue, setPage } = useApp.getState()
   const explanationKey = `${selection.key}|${activePromptId}`
   const store = useStudyStore()
+  const isMovie = store === useMovie
   const studyActions = useContext(StudyActionsContext)
   const explanation = useStudy((s) => s.explanations[explanationKey])
   const savedNoteId = useStudy((s) => s.savedNotes[selection.key])
@@ -506,6 +508,10 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
                 <p className="mt-4 text-xs text-muted">
                   <Badge>Tip</Badge> Highlight any phrase above to save it as a structure, word or idiom.
                 </p>
+              )}
+              {/* Movie Mode: when a whole sentence is explained, its words and idioms are listed separately. */}
+              {isMovie && explanation.status !== 'error' && (selection.line ? selection.text === selection.sentence : selection.text.trim().split(/\s+/).length >= 3) && (
+                <SentenceWords sentence={selection.text} />
               )}
             </>
           ) : (

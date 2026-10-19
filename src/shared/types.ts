@@ -141,6 +141,16 @@ export interface TermItem {
   note: string
 }
 
+/** Movie Mode: one word / idiom of an explained sentence. */
+export interface SentenceWord {
+  term: string
+  kind: 'word' | 'idiom' | 'phrasal verb' | 'expression'
+  meaningBn: string
+  /** Easy English synonyms. */
+  synonyms: string[]
+  example: string
+}
+
 export interface NoteData {
   meaning_bn: string
   meaning_en: string

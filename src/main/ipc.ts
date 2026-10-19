@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { EwService } from './ew/EwService'
 import type { Content } from '@google/genai'
 import type { Api, ApiChannel, EventChannel, Events } from '@shared/ipcContract'
-import type { AppSettings, DocCategory, Note, PlayerKind } from '@shared/types'
+import type { AppSettings, DocCategory, Note, PlayerKind, SentenceWord } from '@shared/types'
 import type { Db } from './db'
 import { getDocTarget, getMovieDoc, getSetting, listDocTargets, setDocTarget, setMovieDoc, setSetting } from './db/repos/settings'
 import { deletePrompt, listPrompts, resolvePrompt, savePrompt, setDefaultPrompt } from './db/repos/prompts'
@@ -236,6 +236,21 @@ export function registerIpc(s: Services): void {
   handle('prompts:setDefault', (id) => setDefaultPrompt(db, id))
 
   // ---- AI
+  // Movie Mode: words & idioms of an explained sentence (kept for this session, so asking again is instant).
+  const sentenceWordsCache = new Map<string, Promise<SentenceWord[]>>()
+  handle('ai:sentenceWords', (sentence) => {
+    if (!gemini.configured) throw new Error('Add your Gemini API key in Settings to see the words of the sentence.')
+    const key = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
+    let job = sentenceWordsCache.get(key)
+    if (!job) {
+      job = gemini.sentenceWords(sentence)
+      // A failed answer is not kept, so "Try again" asks Gemini again.
+      job.catch(() => sentenceWordsCache.delete(key))
+      if (sentenceWordsCache.size > 300) sentenceWordsCache.delete(sentenceWordsCache.keys().next().value!)
+      sentenceWordsCache.set(key, job)
+    }
+    return job
+  })
   handle('ai:explain', async ({ requestId, promptId, context }) => {
     const prompt = resolvePrompt(db, promptId)
     return gemini.stream({
@@ -359,6 +374,9 @@ export function registerIpc(s: Services): void {
     }
   }
 
+  /** Saved words or their cards changed: open lists (Revision, Flashcards) reload at once. */
+  const learningChanged = (): void => send(s.window(), 'learning:changed', {})
+
   handle('notes:create', async (input) => {
     if (!input.text.trim()) throw new Error('Nothing to save.')
     // The same item (same text, type, sentence and source) is not saved twice; a different
@@ -370,6 +388,7 @@ export function registerIpc(s: Services): void {
     }
     // Save locally right away so the button never waits on Gemini or Google.
     const note = insertNote(db, input, null)
+    learningChanged()
     const toDocs = input.saveToDocs || (autoSaveToDocs() && google.connected)
     void finishNote(note.id, toDocs)
     return note
@@ -390,6 +409,8 @@ export function registerIpc(s: Services): void {
     } catch (err) {
       console.warn('Could not make the flashcard:', err)
     }
+    // The card (made once Gemini has chosen the word to learn) shows up straight away.
+    learningChanged()
     if (!toDocs) return
     try {
       const synced = await syncNote(id)
@@ -406,9 +427,13 @@ export function registerIpc(s: Services): void {
   })
   handle('notes:updateKind', ({ id, kind }) => {
     updateNoteKind(db, id, kind)
+    learningChanged()
     return getNote(db, id)!
   })
-  handle('notes:delete', (id) => deleteNote(db, id))
+  handle('notes:delete', (id) => {
+    deleteNote(db, id)
+    learningChanged()
+  })
   handle('notes:syncToDocs', (id) => syncNote(id))
   handle('notes:reanalyze', async (id) => {
     const note = getNote(db, id)
@@ -469,13 +494,21 @@ export function registerIpc(s: Services): void {
         created++
       }
     }
+    learningChanged()
     return { created, skipped }
   })
-  handle('flashcards:edit', (edit) => editFlashcard(db, edit))
+  handle('flashcards:edit', (edit) => {
+    const card = editFlashcard(db, edit)
+    learningChanged()
+    return card
+  })
   handle('flashcards:due', (limit) => listDueFlashcards(db, limit))
   handle('flashcards:list', () => listFlashcards(db))
   handle('flashcards:review', ({ id, rating }) => reviewFlashcard(db, id, rating))
-  handle('flashcards:delete', (id) => deleteFlashcard(db, id))
+  handle('flashcards:delete', (id) => {
+    deleteFlashcard(db, id)
+    learningChanged()
+  })
   handle('revision:dashboard', () => revisionDashboard(db))
 
   // ---- Vocabulary Book Learning (separate module: own tables, deck, schedule, mistakes, Google Doc)

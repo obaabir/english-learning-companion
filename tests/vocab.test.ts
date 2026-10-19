@@ -103,11 +103,12 @@ describe('one collection: items → flashcards', () => {
     expect(noteIdsWithoutFlashcards(db)).not.toContain(b.id)
   })
 
-  it('Google Docs shows the word to learn for a sentence item', () => {
+  it('Google Docs gets the sentence with its meanings and one example (no extra fields)', () => {
     const db = openDatabase(':memory:')
-    const n = insertNote(db, { kind: 'sentence', text: MOVIE_LINE }, data({ target_term: 'check stuff out' }))
+    const n = insertNote(db, { kind: 'sentence', text: MOVIE_LINE }, data({ meaning_bn: 'অর্থ', meaning_en: 'meaning', target_term: 'check stuff out', examples: [{ en: 'Check it out.', bn: 'দেখো।' }] }))
     ensureTargetAndCard(db, n.id)
-    expect(noteToDocEntry(getNote(db, n.id)!).fields.find((f) => f.label === 'Word to learn')?.value).toBe('check stuff out')
+    const e = noteToDocEntry(getNote(db, n.id)!)
+    expect([e.title, ...e.fields.map((f) => f.label)]).toEqual([MOVIE_LINE, 'Meaning (Bangla)', 'Meaning (English)', 'Example', 'Record ID'])
   })
 })
 
