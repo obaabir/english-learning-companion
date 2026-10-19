@@ -1,8 +1,9 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { ChevronUp, Loader2, MessageCircle, Plus, SendHorizonal, Trash2 } from 'lucide-react'
+import { ChevronUp, Loader2, Maximize2, MessageCircle, Minimize2, Plus, SendHorizonal, TextSelect, Trash2, X } from 'lucide-react'
 import { useApp } from '@renderer/stores/app'
 import { useChat } from '@renderer/stores/chat'
-import { useLayout } from '@renderer/stores/layout'
+import { isChatExpanded, toggleChatExpanded, useLayout } from '@renderer/stores/layout'
+import { focusFromSelection } from '@renderer/lib/chatFocus'
 import { Button, EmptyState, PanelHeader, Select, Textarea } from '@renderer/components/ui'
 import { Markdown } from '@renderer/components/Markdown'
 import { cn } from '@renderer/lib/cn'
@@ -22,6 +23,9 @@ export function ChatPanel({ docked = false }: { docked?: boolean }): ReactNode {
   const open = useLayout((s) => s.chatOpen)
   const setOpen = useLayout((s) => s.setChatOpen)
   const expanded = !docked || open
+  const focus = useChat((s) => s.focus)
+  const setFocus = useChat((s) => s.setFocus)
+  const tall = useLayout((s) => isChatExpanded(s.chatHeight))
 
   useEffect(() => {
     void loadChats()
@@ -71,7 +75,19 @@ export function ChatPanel({ docked = false }: { docked?: boolean }): ReactNode {
             )}
             {streaming !== null && !open && <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />}
           </button>
-          {open && <ChatControls />}
+          {open && (
+            <>
+              <ChatControls />
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={tall ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+                onClick={toggleChatExpanded}
+                title={tall ? 'Restore the chat size' : 'Expand the chat to the explanation height'}
+                aria-label={tall ? 'Restore the chat size' : 'Expand the chat'}
+              />
+            </>
+          )}
         </div>
       ) : (
         <PanelHeader title="Chat" icon={<MessageCircle className="size-4" />}>
@@ -79,7 +95,16 @@ export function ChatPanel({ docked = false }: { docked?: boolean }): ReactNode {
         </PanelHeader>
       )}
 
-      <div ref={scrollRef} inert={docked && !open} className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4', docked && 'border-t border-line/70')}>
+      <div
+        ref={scrollRef}
+        inert={docked && !open}
+        onMouseUp={() => {
+          // Highlighting part of an answer makes it the topic of the next question.
+          const f = focusFromSelection(scrollRef.current, 'chat', active?.contextSentence ?? active?.contextText ?? null)
+          if (f) setFocus(f)
+        }}
+        className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4', docked && 'border-t border-line/70')}
+      >
 
         {messages.length === 0 && streaming === null ? (
           <EmptyState icon={<MessageCircle className="size-10" />} title="Ask anything">
@@ -96,6 +121,12 @@ export function ChatPanel({ docked = false }: { docked?: boolean }): ReactNode {
             {messages.map((m, i) =>
               seeded && i === 0 ? null : (
                 <Bubble key={m.id} role={m.role}>
+                  {m.focus && (
+                    <p className="mb-1 flex items-center gap-1 text-[11px] text-muted" title={m.focus.text}>
+                      <TextSelect className="size-3 shrink-0" />
+                      <span className="truncate">about “{m.focus.text}”</span>
+                    </p>
+                  )}
                   {m.role === 'model' ? <Markdown text={m.content} /> : <p className="whitespace-pre-wrap" data-savable>{m.content}</p>}
                 </Bubble>
               )
@@ -110,12 +141,25 @@ export function ChatPanel({ docked = false }: { docked?: boolean }): ReactNode {
       </div>
 
       <div inert={docked && !open} className="shrink-0 border-t border-line/70 p-3">
+        {focus && (
+          <div className="anim-fade-in mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-rose/25 bg-accent-soft px-2.5 py-1.5 text-xs">
+            <TextSelect className="size-3.5 shrink-0 text-rose" />
+            <span className="shrink-0 text-muted">Asking about</span>
+            <span className="min-w-0 flex-1 truncate font-medium" title={focus.text}>
+              “{focus.text}”
+            </span>
+            <button onClick={() => setFocus(null)} className="motion-press shrink-0 rounded p-0.5 text-muted hover:text-fg" aria-label="Stop asking about the highlighted text" title="Clear">
+              <X className="size-3.5" />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <Textarea
+            data-chat-input
             rows={2}
             value={draft}
             disabled={!hasKey}
-            placeholder={hasKey ? 'Ask about meaning, grammar, usage… (Enter to send)' : 'Add your Gemini API key in Settings to chat'}
+            placeholder={hasKey ? (focus ? 'Ask about the highlighted text… e.g. Why is this used here?' : 'Ask about meaning, grammar, usage… (Enter to send)') : 'Add your Gemini API key in Settings to chat'}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

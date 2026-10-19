@@ -207,6 +207,10 @@ const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
         json TEXT NOT NULL
       );
     `)
+  },
+  // Chat questions remember the text the learner had highlighted (JSON ChatFocus).
+  (db) => {
+    db.exec(`ALTER TABLE chat_messages ADD COLUMN focus_json TEXT;`)
   }
 ]
 

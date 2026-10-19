@@ -212,7 +212,7 @@ export function SpeakPanel({ line }: { line: SubtitleLine }): ReactNode {
           ) : (
             <p className="text-[26px] leading-snug font-semibold">
               {words.map((w, i) => (
-                <span key={i} className={cn(heard && (heard.words[i] ? 'text-[#1f7a3a]' : 'text-muted/60'))}>
+                <span key={i} className={cn(heard && (heard.words[i] ? 'text-[#52d6a0]' : 'text-muted/60'))}>
                   {w}{' '}
                 </span>
               ))}

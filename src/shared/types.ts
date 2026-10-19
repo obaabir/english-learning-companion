@@ -1,11 +1,13 @@
-export type NoteKind = 'word' | 'phrase' | 'idiom' | 'sentence' | 'structure'
+export type NoteKind = 'word' | 'phrase' | 'idiom' | 'sentence' | 'structure' | 'grammar' | 'general'
 
 export const NOTE_KINDS: { value: NoteKind; label: string }[] = [
   { value: 'sentence', label: 'Sentence' },
   { value: 'word', label: 'Word' },
   { value: 'phrase', label: 'Phrase' },
   { value: 'idiom', label: 'Idiom / Phrasal verb' },
-  { value: 'structure', label: 'Sentence structure' }
+  { value: 'structure', label: 'Sentence structure' },
+  { value: 'grammar', label: 'Grammar note' },
+  { value: 'general', label: 'General note' }
 ]
 
 /** Google Doc destinations. Each category remembers its own doc. */
@@ -143,6 +145,19 @@ export interface ChatMessage {
   role: 'user' | 'model'
   content: string
   createdAt: string
+  /** What the learner had highlighted when asking (user messages only). */
+  focus?: ChatFocus | null
+}
+
+/** The exact text a chat question is about, with where it came from. */
+export interface ChatFocus {
+  /** The highlighted word, phrase, idiom or structure. */
+  text: string
+  /** The original subtitle/sentence being studied. */
+  sentence?: string | null
+  /** The part of the explanation or chat answer around the highlight. */
+  excerpt?: string | null
+  source: 'explanation' | 'chat'
 }
 
 export interface FlashcardBack {

@@ -649,7 +649,7 @@ function PracticeView(): ReactNode {
           </div>
         ) : result && correct ? (
           <div className="fsp-fade space-y-3">
-            <p className="flex items-center gap-2 text-lg font-semibold text-[#1f7a3a]">
+            <p className="flex items-center gap-2 text-lg font-semibold text-[#52d6a0]">
               <Check className="size-6" /> Correct!
             </p>
             <p className="text-sm">{checkedSentence}</p>
@@ -991,7 +991,7 @@ function FixIt({ wrong, fix }: { wrong: string; fix: string }): ReactNode {
         </Button>
       </div>
       {state === "right" && (
-        <p className="text-xs font-medium text-[#1f7a3a]">✓ Correct</p>
+        <p className="text-xs font-medium text-[#52d6a0]">✓ Correct</p>
       )}
       {state === "shown" && <p className="text-xs text-muted">Answer: {fix}</p>}
     </div>

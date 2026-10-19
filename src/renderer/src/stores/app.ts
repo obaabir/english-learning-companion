@@ -2,7 +2,22 @@ import { create } from 'zustand'
 import type { AppSettings, Prompt } from '@shared/types'
 import { errorMessage, invoke } from '@renderer/lib/api'
 
-export type Page = 'movie' | 'youtube' | 'room' | 'world' | 'notes' | 'structures' | 'flashcards' | 'games' | 'ielts' | 'errors' | 'prompts' | 'settings'
+export type Page =
+  | 'movie'
+  | 'youtube'
+  | 'room'
+  | 'articles'
+  | 'world'
+  | 'notes'
+  | 'vocabulary'
+  | 'idioms'
+  | 'structures'
+  | 'flashcards'
+  | 'games'
+  | 'ielts'
+  | 'errors'
+  | 'prompts'
+  | 'settings'
 
 export interface Toast {
   id: number

@@ -13,7 +13,15 @@ import { cn } from '@renderer/lib/cn'
 
 const kindLabel = (k: NoteKind): string => NOTE_KINDS.find((x) => x.value === k)?.label ?? k
 
-export function NotesView({ mode }: { mode: 'all' | 'structures' }): ReactNode {
+/** Library lists: one kind of saved item each ('all' = every note, with a type filter). */
+const MODE_KINDS: Record<'structures' | 'vocabulary' | 'idioms', NoteKind[]> = {
+  structures: ['structure'],
+  vocabulary: ['word'],
+  idioms: ['idiom', 'phrase']
+}
+const MODE_TITLES = { all: 'My Notes', structures: 'Sentence Structures', vocabulary: 'English Vocabulary', idioms: 'Idioms and Expressions' }
+
+export function NotesView({ mode }: { mode: 'all' | 'structures' | 'vocabulary' | 'idioms' }): ReactNode {
   const toastError = useApp((s) => s.toastError)
   const [notes, setNotes] = useState<Note[]>([])
   const [search, setSearch] = useState('')
@@ -25,7 +33,7 @@ export function NotesView({ mode }: { mode: 'all' | 'structures' }): ReactNode {
 
   const load = useCallback(async () => {
     try {
-      const kinds: NoteKind[] | undefined = mode === 'structures' ? ['structure'] : kind ? [kind] : undefined
+      const kinds: NoteKind[] | undefined = mode !== 'all' ? MODE_KINDS[mode] : kind ? [kind] : undefined
       const movieList = await invoke('notes:movies')
       let path = moviePath
       if (path === null) {
@@ -57,7 +65,7 @@ export function NotesView({ mode }: { mode: 'all' | 'structures' }): ReactNode {
     }
   }
 
-  const title = mode === 'structures' ? 'Sentence Structures' : 'My Notes'
+  const title = MODE_TITLES[mode]
   const movie = movies.find((m) => m.mediaPath === moviePath) ?? null
   const onMovieDocChanged = (doc: MovieNotesInfo['doc']): void =>
     setMovies((ms) => ms.map((m) => (m.mediaPath === moviePath ? { ...m, doc } : m)))

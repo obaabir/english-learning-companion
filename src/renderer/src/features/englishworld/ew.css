@@ -12,7 +12,7 @@
 }
 
 .ew-card {
-  background: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(160deg, rgba(44, 42, 56, 0.72), rgba(22, 22, 30, 0.72));
   border: 1px solid var(--hairline);
   border-radius: 16px;
   box-shadow: 0 4px 18px rgba(55, 35, 45, 0.06);
@@ -118,7 +118,7 @@
   z-index: 41;
   max-height: 92%;
   overflow-y: auto;
-  background: #fff;
+  background: rgba(28, 28, 36, 0.96);
   border-radius: 20px 20px 0 0;
   box-shadow: 0 -12px 40px rgba(55, 35, 45, 0.18);
   padding: 16px 18px 22px;
@@ -173,7 +173,7 @@
   top: 100%;
   z-index: 30;
   min-width: 210px;
-  background: #fff;
+  background: rgba(28, 28, 36, 0.96);
   border: 1px solid var(--hairline);
   border-radius: 12px;
   box-shadow: var(--shadow-elevated);

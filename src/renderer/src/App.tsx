@@ -76,12 +76,14 @@ export function App(): ReactNode {
           <div key={`${page}-${reloads[page] ?? 0}`} className="anim-fade-in h-full">
             {page === 'notes' && <NotesView key="notes" mode="all" />}
             {page === 'structures' && <NotesView key="structures" mode="structures" />}
+            {page === 'vocabulary' && <NotesView key="vocabulary" mode="vocabulary" />}
+            {page === 'idioms' && <NotesView key="idioms" mode="idioms" />}
             {page === 'room' && <PracticeRoom />}
             {page === 'world' && <EnglishWorld />}
             {page === 'flashcards' && <FlashcardsView />}
             {page === 'prompts' && <PromptManager />}
             {page === 'settings' && <SettingsView />}
-            {(page === 'games' || page === 'ielts' || page === 'errors') && <ComingSoon page={page} />}
+            {(page === 'games' || page === 'ielts' || page === 'errors' || page === 'articles') && <ComingSoon page={page} />}
           </div>
         )}
         <SelectionSaveMenu />

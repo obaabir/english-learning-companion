@@ -1,5 +1,5 @@
 import { GoogleGenAI, MediaResolution, ThinkingLevel, type Content, type Schema, type ThinkingConfig } from '@google/genai'
-import type { FlashcardBack, Note, NoteData, StudyContext } from '@shared/types'
+import type { ChatFocus, FlashcardBack, Note, NoteData, StudyContext } from '@shared/types'
 import {
   EXTRACT_INSTRUCTION,
   FLASHCARD_INSTRUCTION,
@@ -27,6 +27,23 @@ export function buildStudyMessage(ctx: StudyContext): string {
   if (ctx.after?.length) parts.push(`Next lines:\n${ctx.after.map((l) => `- ${l}`).join('\n')}`)
   if (ctx.mediaTitle) parts.push(`Source: ${ctx.mediaTitle}`)
   return parts.join('\n\n')
+}
+
+/**
+ * A chat question with the text the learner highlighted. The model sees the highlight,
+ * the original sentence and the nearby explanation, so "Why is this used here?" is
+ * answered about that exact text.
+ */
+export function buildFocusedQuestion(question: string, focus?: ChatFocus | null): string {
+  if (!focus?.text.trim()) return question
+  const parts = [`[The learner highlighted this text and is asking about it: "${focus.text.trim()}"]`]
+  if (focus.sentence?.trim() && focus.sentence.trim() !== focus.text.trim()) parts.push(`[Original sentence: "${focus.sentence.trim()}"]`)
+  if (focus.excerpt?.trim()) {
+    const where = focus.source === 'chat' ? 'your earlier answer' : 'the explanation'
+    parts.push(`[Where it appears in ${where}:\n${focus.excerpt.trim()}]`)
+  }
+  parts.push(`[Answer about the highlighted text specifically, in its context.]`, '', question)
+  return parts.join('\n')
 }
 
 /** Temporary server-side failures worth retrying: overloaded model (503), rate limit (429), gateway errors. */
@@ -231,31 +248,109 @@ export class GeminiService {
   }
 
   /** Streams a response, calling onDelta for each chunk; resolves with the full text. */
+  /** After this long with no text from the main model, the light model is asked too (first to write wins). */
+  streamHedgeMs = 4000
+
   async stream(args: { systemInstruction?: string; contents: Content[]; onDelta: (t: string) => void; fast?: boolean }): Promise<string> {
-    let sentAny = false
-    // Only retry while nothing has been shown yet, so text is never duplicated.
-    return this.resilient(async (model) => {
+    // Quick answers: no waiting between retries. If the main model is busy or slow, the light model
+    // is asked at once; whichever starts writing first wins and the other is cancelled (no duplicate text).
+    const main = this.model()
+    const light = this.fallbackModel()
+    let winner: string | null = null
+    let lastError: unknown = null
+    const controllers = new Map<string, AbortController>()
+
+    const attempt = async (model: string): Promise<string | null> => {
+      const ctrl = new AbortController()
+      controllers.set(model, ctrl)
       const open = (thinkingConfig: ThinkingConfig | undefined) =>
         this.client().models.generateContentStream({
           model,
           contents: args.contents,
-          config:
-            args.systemInstruction || thinkingConfig
-              ? { ...(args.systemInstruction ? { systemInstruction: args.systemInstruction } : {}), ...(thinkingConfig ? { thinkingConfig } : {}) }
-              : undefined
+          config: {
+            abortSignal: ctrl.signal,
+            ...(args.systemInstruction ? { systemInstruction: args.systemInstruction } : {}),
+            ...(thinkingConfig ? { thinkingConfig } : {})
+          }
         })
       const stream = args.fast ? await this.withFastThinking(model, open) : await open(undefined)
       let full = ''
       for await (const chunk of stream) {
+        if (winner && winner !== model) return null
         const t = chunk.text
-        if (t) {
-          full += t
-          sentAny = true
-          args.onDelta(t)
+        if (!t) continue
+        if (!winner) {
+          winner = model
+          for (const [m, c] of controllers) if (m !== model) c.abort()
+        }
+        full += t
+        args.onDelta(t)
+      }
+      return winner === model ? full : null
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      let running = 0
+      let lightStarted = false
+      let settled = false
+      const done = (text: string): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(text)
+      }
+      const finishIfAllFailed = (): void => {
+        if (!settled && running === 0 && !winner && lightStarted) {
+          settled = true
+          clearTimeout(timer)
+          reject(friendlyError(lastError ?? new Error('Gemini did not answer.')))
         }
       }
-      return full
-    }, () => !sentAny)
+      const failed = (err: unknown): void => {
+        lastError = err
+        running--
+        finishIfAllFailed()
+      }
+      const run = (model: string): void => {
+        running++
+        attempt(model).then(
+          (text) => {
+            if (text !== null) return done(text)
+            running--
+            finishIfAllFailed()
+          },
+          (err) => {
+            if (winner === model) {
+              // It failed after it had started writing: keep what was shown.
+              settled = true
+              clearTimeout(timer)
+              reject(friendlyError(err))
+              return
+            }
+            failed(err)
+            if (!winner) startLight()
+          }
+        )
+      }
+      const startLight = (): void => {
+        if (settled || lightStarted || winner) return
+        lightStarted = true
+        void light.then((model) => {
+          if (!model || model === main || winner || settled) {
+            if (!settled && running === 0 && !winner) {
+              settled = true
+              clearTimeout(timer)
+              reject(friendlyError(lastError ?? new Error('Gemini did not answer.')))
+            }
+            return
+          }
+          console.warn(`Gemini model ${main} is slow or busy; also asking ${model}`)
+          run(model)
+        })
+      }
+      const timer = setTimeout(startLight, this.streamHedgeMs)
+      run(main)
+    })
   }
 
   private async json<T>(systemInstruction: string, prompt: string, schema: Schema, fast = false): Promise<T> {

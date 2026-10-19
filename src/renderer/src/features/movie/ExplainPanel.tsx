@@ -22,7 +22,8 @@ import { errorMessage, invoke, newRequestId, on, streamCall } from '@renderer/li
 import { useApp } from '@renderer/stores/app'
 import { contextLines, getSelection, useStudy, useStudyStore, type StudyActions, type StudySelection } from '@renderer/stores/movie'
 import { useChat } from '@renderer/stores/chat'
-import { useLayout } from '@renderer/stores/layout'
+import { CHAT_MAX, CHAT_MIN, toggleChatExpanded, useLayout } from '@renderer/stores/layout'
+import { focusFromSelection } from '@renderer/lib/chatFocus'
 import { Badge, Button, EmptyState, Select } from '@renderer/components/ui'
 import { Markdown } from '@renderer/components/Markdown'
 import { cn } from '@renderer/lib/cn'
@@ -86,17 +87,81 @@ export function ExplainPanel(): ReactNode {
 
 function ChatDock(): ReactNode {
   const open = useLayout((s) => s.chatOpen)
+  const saved = useLayout((s) => s.chatHeight)
+  // While dragging, the height follows the pointer without saving on every move.
+  const [live, setLive] = useState<number | null>(null)
+  const dockRef = useRef<HTMLDivElement>(null)
+  const height = live ?? saved
+  // Never taller than the section minus room for the selected sentence's header, so nothing overlaps.
+  const chatH = { '--chat-h': `clamp(220px, ${(height * 100).toFixed(2)}cqh, calc(100cqh - 9.5rem))` } as React.CSSProperties
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const box = dockRef.current?.parentElement?.getBoundingClientRect()
+    if (!box || e.button !== 0) return
+    e.preventDefault()
+    const handle = e.currentTarget
+    handle.setPointerCapture(e.pointerId)
+    const share = (y: number): number => Math.min(CHAT_MAX, Math.max(CHAT_MIN, (box.bottom - y) / box.height))
+    let last = height
+    const move = (ev: PointerEvent): void => {
+      last = share(ev.clientY)
+      setLive(last)
+    }
+    const up = (): void => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      handle.removeEventListener('pointercancel', up)
+      useLayout.getState().setChatHeight(last)
+      setLive(null)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+    handle.addEventListener('pointercancel', up)
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    const step = e.key === 'ArrowUp' ? 0.05 : e.key === 'ArrowDown' ? -0.05 : 0
+    if (!step) return
+    e.preventDefault()
+    useLayout.getState().setChatHeight(saved + step)
+  }
+
   // The reserved space switches in one step; the chat panel (always full height) slides
   // with a transform, so no animation frame needs layout. The panel clips what slides out.
   return (
-    <div className={cn('relative shrink-0', open ? 'h-[max(220px,46cqh)]' : 'h-11')}>
+    <div ref={dockRef} style={chatH} className={cn('relative shrink-0', open ? 'h-(--chat-h)' : 'h-11')}>
       <div
         className={cn(
-          'absolute inset-x-0 bottom-0 z-20 h-[max(220px,46cqh)] border-t border-white/80 bg-white/[0.82] will-change-transform',
-          'shadow-[0_-10px_30px_rgba(55,35,45,0.07)] transition-[translate] duration-[240ms] ease-[var(--ease)] motion-reduce:transition-none',
-          open ? 'translate-y-0' : 'translate-y-[calc(max(220px,46cqh)-2.75rem)]'
+          'absolute inset-x-0 bottom-0 z-20 h-(--chat-h) border-t border-white/80 bg-white/[0.82] will-change-transform',
+          'shadow-[0_-10px_30px_rgba(55,35,45,0.07)] motion-reduce:transition-none',
+          live === null && 'transition-[translate] duration-[240ms] ease-[var(--ease)]',
+          open ? 'translate-y-0' : 'translate-y-[calc(var(--chat-h)-2.75rem)]'
         )}
       >
+        {open && (
+          // Drag up/down to make the chat taller or shorter (up to about the explanation's height).
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the chat"
+            aria-valuemin={Math.round(CHAT_MIN * 100)}
+            aria-valuemax={Math.round(CHAT_MAX * 100)}
+            aria-valuenow={Math.round(height * 100)}
+            tabIndex={0}
+            title="Drag to resize the chat · double-click to expand or restore"
+            onPointerDown={onPointerDown}
+            onDoubleClick={() => toggleChatExpanded()}
+            onKeyDown={onKeyDown}
+            className="group absolute inset-x-0 -top-1.5 z-30 flex h-3 cursor-row-resize touch-none items-center justify-center outline-none"
+          >
+            <span
+              className={cn(
+                'h-1 w-10 rounded-full bg-muted/40 transition-colors group-hover:bg-accent/70 group-focus-visible:bg-accent',
+                live !== null && 'bg-accent'
+              )}
+            />
+          </div>
+        )}
         <ChatPanel docked />
       </div>
     </div>
@@ -160,10 +225,15 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
     try {
       await useChat
         .getState()
-        .send(`What does "${word}" mean here: "${from}"? Give its Bangla meaning and one example sentence with its Bangla translation.`)
+        .send(`What does "${word}" mean here: "${from}"? Give its Bangla meaning and one example sentence with its Bangla translation.`, { focus: false })
     } catch (err) {
       toastError(err)
     }
+  }
+  /** Highlighting text in the explanation makes it the chat's topic: the next question is about it. */
+  const onExplanationMouseUp = (): void => {
+    const focus = focusFromSelection(bodyRef.current, 'explanation', selection.sentence ?? selection.text)
+    if (focus) useChat.getState().setFocus(focus)
   }
   const flipFrom = useRef<number | null>(null)
 
@@ -405,7 +475,7 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
           </Collapse>
         </div>
 
-        <div ref={bodyRef} onClick={onExplanationClick} className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
+        <div ref={bodyRef} onClick={onExplanationClick} onMouseUp={onExplanationMouseUp} className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
           {!hasKey && (
             <div className="anim-fade-in mb-4 rounded-xl bg-info-soft px-3 py-2.5 text-sm text-info">
               Add your Gemini API key in{' '}

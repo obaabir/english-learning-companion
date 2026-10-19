@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Gamepad2, GraduationCap, ListChecks } from 'lucide-react'
+import { Gamepad2, GraduationCap, ListChecks, Newspaper } from 'lucide-react'
 import { EmptyState } from '@renderer/components/ui'
 
 const PAGES = {
@@ -12,6 +12,11 @@ const PAGES = {
     icon: <GraduationCap className="size-12" />,
     title: 'IELTS Mode is coming in Phase 3',
     text: 'A browser extension will follow your IELTS practice, track each question, analyse your reasoning and log mistakes like FALSE vs NOT GIVEN.'
+  },
+  articles: {
+    icon: <Newspaper className="size-12" />,
+    title: 'Articles are coming soon',
+    text: 'Read English articles and blog posts here. Click any word or sentence to explain it, chat about it and save it to your notes.'
   },
   errors: {
     icon: <ListChecks className="size-12" />,

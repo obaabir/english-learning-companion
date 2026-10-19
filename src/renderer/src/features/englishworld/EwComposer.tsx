@@ -157,7 +157,7 @@ export function EwComposer({ preset, onClose, onPosted }: { preset: ComposerPres
         {check && (
           <div className="ew-fade mt-2 space-y-2 rounded-xl bg-white/70 p-3 text-sm ring-1 ring-line/70">
             {check.ok || !check.mistakes.length ? (
-              <p className="font-medium text-[#1f7a3a]">✓ Looks good! No mistakes found.</p>
+              <p className="font-medium text-[#52d6a0]">✓ Looks good! No mistakes found.</p>
             ) : (
               <>
                 <ul className="space-y-1">
@@ -234,7 +234,7 @@ export function EwComposer({ preset, onClose, onPosted }: { preset: ComposerPres
         {image && (
           <div className="ew-fade relative mt-3 inline-block">
             <img src={image} alt="Your photo" className="max-h-56 rounded-xl" />
-            <button onClick={() => setImage(null)} className="ew-tap absolute top-1 right-1 rounded-full bg-black/55 text-white" aria-label="Remove photo">
+            <button onClick={() => setImage(null)} className="ew-tap absolute top-1 right-1 rounded-full bg-black/55 text-[#fff]" aria-label="Remove photo">
               <X className="mx-auto size-4" />
             </button>
           </div>

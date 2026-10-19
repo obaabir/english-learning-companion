@@ -39,7 +39,7 @@ import { PracticeRoom } from './practice/room'
 import { windowsVoiceWav } from './practice/voice'
 import { setDailyCap } from './db/repos/room'
 import { listRecentVideos, saveVideoPosition } from './db/repos/youtube'
-import { buildStudyMessage, DEFAULT_MODEL, fallbackFlashcard, type GeminiService } from './ai/gemini'
+import { buildFocusedQuestion, buildStudyMessage, DEFAULT_MODEL, fallbackFlashcard, type GeminiService } from './ai/gemini'
 import type { GoogleService } from './google/GoogleService'
 import { createNoteSync } from './notesSync'
 
@@ -243,14 +243,15 @@ export function registerIpc(s: Services): void {
     return chat
   })
   handle('chats:messages', (chatId) => listMessages(db, chatId))
-  handle('chats:send', async ({ requestId, chatId, text }) => {
+  handle('chats:send', async ({ requestId, chatId, text, focus }) => {
     const chat = getChat(db, chatId)
     if (!chat) throw new Error('Chat not found.')
     const history = listMessages(db, chatId)
-    insertMessage(db, chatId, 'user', text)
-    const contents: Content[] = [...history, { role: 'user' as const, content: text }].map((m) => ({
+    insertMessage(db, chatId, 'user', text, focus)
+    // Each question carries the text that was highlighted when it was asked, so later turns keep it too.
+    const contents: Content[] = [...history, { role: 'user' as const, content: text, focus }].map((m) => ({
       role: m.role,
-      parts: [{ text: m.content }]
+      parts: [{ text: m.role === 'user' ? buildFocusedQuestion(m.content, m.focus) : m.content }]
     }))
     const reply = await gemini.stream({
       systemInstruction: resolvePrompt(db, chat.promptId)?.instruction,

@@ -158,7 +158,7 @@ function TodayTab({ home, reload }: { home: RoomHome | null; reload: () => Promi
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
       {/* Day card */}
       <div className="glass-elevated anim-rise-in flex items-center gap-4 rounded-2xl p-5">
-        <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-2xl text-white" style={{ background: 'linear-gradient(145deg, #9a2a4a, #781b36 60%, #5e1229)' }}>
+        <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-2xl text-[#fff]" style={{ background: 'linear-gradient(145deg, #9a2a4a, #781b36 60%, #5e1229)' }}>
           <span className="text-[10px] uppercase opacity-80">Day</span>
           <span className="text-xl leading-none font-bold tabular-nums">{home.dayNumber}</span>
         </div>
@@ -352,7 +352,7 @@ const DOT: Record<CalendarDay['dot'], string> = {
   none: '',
   shadowed: 'bg-accent',
   due: 'bg-[#c58a2a]',
-  done: 'bg-[#1f7a3a]',
+  done: 'bg-[#52d6a0]',
   upcoming: 'bg-muted/40'
 }
 

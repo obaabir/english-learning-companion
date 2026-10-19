@@ -1,4 +1,4 @@
-import type { Chat, ChatMessage } from '@shared/types'
+import type { Chat, ChatFocus, ChatMessage } from '@shared/types'
 import type { Db } from '../index'
 
 interface ChatRow {
@@ -19,6 +19,7 @@ interface MessageRow {
   role: 'user' | 'model'
   content: string
   created_at: string
+  focus_json?: string | null
 }
 
 const toChat = (r: ChatRow): Chat => ({
@@ -38,8 +39,18 @@ const toMessage = (r: MessageRow): ChatMessage => ({
   chatId: r.chat_id,
   role: r.role,
   content: r.content,
-  createdAt: r.created_at
+  createdAt: r.created_at,
+  focus: parseFocus(r.focus_json)
 })
+
+function parseFocus(json: string | null | undefined): ChatFocus | null {
+  if (!json) return null
+  try {
+    return JSON.parse(json) as ChatFocus
+  } catch {
+    return null
+  }
+}
 
 export function insertChat(db: Db, c: Omit<Chat, 'id' | 'createdAt'>): Chat {
   const res = db
@@ -64,8 +75,10 @@ export function deleteChat(db: Db, id: number): void {
   db.prepare('DELETE FROM chats WHERE id = ?').run(id)
 }
 
-export function insertMessage(db: Db, chatId: number, role: 'user' | 'model', content: string): ChatMessage {
-  const res = db.prepare('INSERT INTO chat_messages (chat_id, role, content) VALUES (?, ?, ?)').run(chatId, role, content)
+export function insertMessage(db: Db, chatId: number, role: 'user' | 'model', content: string, focus?: ChatFocus | null): ChatMessage {
+  const res = db
+    .prepare('INSERT INTO chat_messages (chat_id, role, content, focus_json) VALUES (?, ?, ?, ?)')
+    .run(chatId, role, content, focus ? JSON.stringify(focus) : null)
   const row = db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(Number(res.lastInsertRowid)) as unknown as MessageRow
   return toMessage(row)
 }

@@ -1,4 +1,5 @@
 import type {
+  ChatFocus,
   AppSettings,
   Chat,
   ChatMessage,
@@ -100,7 +101,7 @@ export interface Api {
     explanationMd?: string | null
   }) => Promise<Chat>
   'chats:messages': (chatId: number) => Promise<ChatMessage[]>
-  'chats:send': (args: { requestId: string; chatId: number; text: string }) => Promise<ChatMessage>
+  'chats:send': (args: { requestId: string; chatId: number; text: string; focus?: ChatFocus | null }) => Promise<ChatMessage>
   'chats:delete': (chatId: number) => Promise<void>
 
   'notes:create': (input: NewNoteInput) => Promise<Note>

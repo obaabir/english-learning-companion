@@ -5,43 +5,51 @@
  * A single bright theme by design (the palette is light-only).
  * ------------------------------------------------------------------ */
 :root {
-  /* Palette */
-  --ivory: #f7f6f3;
-  --burgundy: #781b36;
-  --burgundy-hover: #8a2443;
-  --rose: #b86c81;
-  --blush: #f8edf1;
-  --ink: #24232a;
-  --ink-2: #777681;
-  --hairline: #e7e2e3;
+  /* Liquid Glass palette (dark, cinematic) */
+  --liquid-bg: #08090d;
+  --liquid-bg-2: #101116;
+  --liquid-crimson: #c51d4a;
+  --liquid-rose: #ff3d7f;
+  --liquid-amber: #ff8b54;
+
+  /* Legacy names kept so every component keeps working */
+  --ivory: var(--liquid-bg);
+  --burgundy: #c51d4a;
+  --burgundy-hover: #d92a58;
+  --rose: #ff6f9c;
+  --blush: rgba(197, 29, 74, 0.22);
+  --ink: #f4f3f7;
+  --ink-2: #a7a6b2;
+  --hairline: rgba(255, 255, 255, 0.12);
 
   /* Semantic tokens used by the utility classes */
-  --bg: var(--ivory);
-  --surface: rgba(255, 255, 255, 0.72);
-  --surface-2: rgba(120, 27, 54, 0.05);
-  --border: var(--hairline);
-  --text: var(--ink);
-  --muted: var(--ink-2);
-  --accent: var(--burgundy);
-  --accent-soft: var(--blush);
+  --bg: var(--liquid-bg);
+  --surface: rgba(32, 32, 42, 0.62);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.12);
+  --text: #f4f3f7;
+  --muted: #a7a6b2;
+  --accent: #ff4f86;
+  --accent-soft: rgba(197, 29, 74, 0.24);
   --accent-fg: #ffffff;
-  --info: #7d3a52;
-  --info-soft: rgba(184, 108, 129, 0.13);
-  --warn: #8a5a10;
-  --warn-soft: rgba(229, 176, 82, 0.18);
-  --danger: #b3261e;
-  --danger-soft: rgba(219, 68, 55, 0.1);
+  --info: #ff9cbc;
+  --info-soft: rgba(255, 61, 127, 0.14);
+  --warn: #ffb27a;
+  --warn-soft: rgba(255, 139, 84, 0.16);
+  --danger: #ff647c;
+  --danger-soft: rgba(255, 100, 124, 0.14);
+  --success: #52d6a0;
 
-  /* Glass hierarchy */
-  --glass-panel: rgba(255, 255, 255, 0.62);
-  --glass-elevated: rgba(255, 255, 255, 0.8);
-  --glass-inset: rgba(255, 255, 255, 0.5);
-  --glass-edge: rgba(255, 255, 255, 0.85);
-  --glass-blur: blur(20px) saturate(140%);
-  --glass-blur-strong: blur(24px) saturate(160%);
-  --shadow-panel: 0 8px 32px rgba(55, 35, 45, 0.08), 0 1px 2px rgba(55, 35, 45, 0.04);
-  --shadow-elevated: 0 18px 48px rgba(55, 35, 45, 0.16), 0 2px 6px rgba(55, 35, 45, 0.06);
-  --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  /* Glass hierarchy: smoked glass */
+  --glass-panel: rgba(23, 25, 31, 0.6);
+  --glass-elevated: rgba(32, 32, 42, 0.78);
+  --glass-inset: rgba(255, 255, 255, 0.045);
+  --glass-edge: rgba(255, 255, 255, 0.16);
+  --glass-blur: blur(26px) saturate(150%);
+  --glass-blur-strong: blur(30px) saturate(165%);
+  --shadow-panel: 0 18px 50px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --shadow-elevated: 0 24px 64px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 
   /* Motion: short, eased, transform/opacity only. */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -50,7 +58,7 @@
   --dur-hover: 160ms;
   --dur-panel: 240ms;
 
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -70,6 +78,8 @@
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  /* "white" tints become light-catching smoked glass on the dark theme */
+  --color-white: rgb(255 255 255 / 0.16);
   --ease-glass: var(--ease);
   --font-sans: 'Segoe UI Variable Text', 'Segoe UI', 'Nirmala UI', system-ui, sans-serif;
 }
@@ -86,17 +96,17 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
-  /* Static layered gradients for the glass to frost. Never animated. */
+  /* Cinematic liquid: near-black base with crimson, magenta and amber fields. Static (never repainted). */
   background:
-    radial-gradient(820px 620px at 6% 8%, rgba(184, 108, 129, 0.34), transparent 62%),
-    radial-gradient(720px 560px at 96% 4%, rgba(120, 27, 54, 0.2), transparent 60%),
-    radial-gradient(900px 720px at 78% 104%, rgba(226, 178, 146, 0.42), transparent 62%),
-    radial-gradient(640px 520px at 34% 92%, rgba(184, 108, 129, 0.2), transparent 60%),
-    linear-gradient(160deg, #fbf7f5 0%, var(--ivory) 45%, #f3eee9 100%);
+    radial-gradient(900px 700px at 4% 0%, rgba(197, 29, 74, 0.55), transparent 60%),
+    radial-gradient(760px 620px at 100% 12%, rgba(255, 61, 127, 0.32), transparent 62%),
+    radial-gradient(980px 760px at 86% 108%, rgba(255, 139, 84, 0.38), transparent 60%),
+    radial-gradient(700px 560px at 30% 100%, rgba(140, 16, 60, 0.45), transparent 62%),
+    linear-gradient(165deg, #0b0a10 0%, var(--liquid-bg) 50%, #120a10 100%);
   background-attachment: fixed;
 }
 
-/* Soft shapes behind the panels give the blur visible structure. Fixed, static, painted once. */
+/* Organic liquid shapes behind the glass. Fixed and static (painted once), so the blur above never re-renders. */
 .ambient {
   position: fixed;
   inset: 0;
@@ -106,41 +116,46 @@ body {
 }
 .ambient > span {
   position: absolute;
-  border-radius: 9999px;
 }
 .ambient .orb-1 {
-  width: 420px;
-  height: 420px;
-  left: 180px;
-  top: -120px;
-  background: radial-gradient(circle at 35% 35%, rgba(184, 108, 129, 0.55), rgba(184, 108, 129, 0.12) 70%);
+  width: 760px;
+  height: 520px;
+  left: -120px;
+  top: -160px;
+  border-radius: 46% 54% 62% 38% / 50% 42% 58% 50%;
+  background: radial-gradient(ellipse at 40% 40%, rgba(222, 30, 84, 0.75), rgba(150, 14, 56, 0.3) 55%, transparent 75%);
+  transform: rotate(-12deg);
 }
 .ambient .orb-2 {
-  width: 520px;
-  height: 520px;
-  right: -140px;
-  top: 30%;
-  background: radial-gradient(circle at 40% 40%, rgba(120, 27, 54, 0.32), rgba(120, 27, 54, 0.06) 72%);
+  width: 820px;
+  height: 640px;
+  right: -260px;
+  top: 18%;
+  border-radius: 58% 42% 40% 60% / 46% 58% 42% 54%;
+  background: radial-gradient(ellipse at 38% 45%, rgba(255, 61, 127, 0.5), rgba(197, 29, 74, 0.22) 55%, transparent 75%);
+  transform: rotate(18deg);
 }
 .ambient .orb-3 {
-  width: 380px;
-  height: 380px;
-  left: 30%;
-  bottom: -160px;
-  background: radial-gradient(circle at 50% 40%, rgba(232, 186, 150, 0.6), rgba(232, 186, 150, 0.1) 70%);
+  width: 900px;
+  height: 560px;
+  left: 28%;
+  bottom: -300px;
+  border-radius: 40% 60% 55% 45% / 55% 45% 55% 45%;
+  background: radial-gradient(ellipse at 50% 40%, rgba(255, 139, 84, 0.62), rgba(255, 90, 70, 0.22) 55%, transparent 75%);
+  transform: rotate(-6deg);
 }
 
 ::selection {
-  background: rgba(184, 108, 129, 0.3);
+  background: rgba(255, 61, 127, 0.35);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(120, 27, 54, 0.2) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
 :focus-visible {
-  outline: 2px solid rgba(120, 27, 54, 0.55);
+  outline: 2px solid rgba(255, 79, 134, 0.75);
   outline-offset: 2px;
 }
 
@@ -149,13 +164,14 @@ body {
   .glass-panel {
     position: relative;
     isolation: isolate;
-    background: var(--glass-panel);
+    background: linear-gradient(160deg, rgba(40, 38, 50, 0.62), var(--glass-panel) 45%, rgba(18, 18, 24, 0.66));
+    -webkit-backdrop-filter: var(--glass-blur);
     backdrop-filter: var(--glass-blur);
     border: 1px solid var(--glass-edge);
-    border-radius: 18px;
-    box-shadow: var(--shadow-panel), var(--highlight);
+    border-radius: 20px;
+    box-shadow: var(--shadow-panel), var(--highlight), inset 0 0 0 1px rgba(255, 255, 255, 0.025);
   }
-  /* Delicate edge reflection: a light gradient stroke brightest at the top-left. */
+  /* Light reflection on the edge: brightest at the top-left, a warm rose glint at the bottom-right. */
   .glass-panel::before,
   .glass-elevated::before {
     content: '';
@@ -165,10 +181,10 @@ body {
     padding: 1px;
     background: linear-gradient(
       140deg,
-      rgba(255, 255, 255, 1),
-      rgba(255, 255, 255, 0.35) 28%,
-      rgba(255, 255, 255, 0) 55%,
-      rgba(184, 108, 129, 0.22) 100%
+      rgba(255, 255, 255, 0.55),
+      rgba(255, 255, 255, 0.14) 26%,
+      rgba(255, 255, 255, 0) 52%,
+      rgba(255, 95, 140, 0.32) 100%
     );
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
@@ -182,76 +198,91 @@ body {
   /* Elevated glass: floating things (dialogs, toasts, menus, the open action panel). */
   .glass-elevated {
     position: relative;
-    background: var(--glass-elevated);
+    background: linear-gradient(160deg, rgba(52, 48, 64, 0.8), var(--glass-elevated) 50%, rgba(24, 24, 32, 0.84));
+    -webkit-backdrop-filter: var(--glass-blur-strong);
     backdrop-filter: var(--glass-blur-strong);
-    border: 1px solid var(--glass-edge);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
-    box-shadow: var(--shadow-elevated), var(--highlight);
+    box-shadow: var(--shadow-elevated), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   }
 
   /* Header band at the top of a glass panel (no extra blur: the panel already blurs). */
   .glass-header {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.22));
-    border-bottom: 1px solid rgba(231, 226, 227, 0.75);
-    box-shadow: var(--highlight);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.015));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
   /* Inset glass: sections inside a panel (control bar, chat dock, cards). */
   .glass-inset {
     background: var(--glass-inset);
-    border: 1px solid rgba(255, 255, 255, 0.72);
-    box-shadow: var(--highlight), 0 1px 2px rgba(55, 35, 45, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 
   /* Inputs, selects, text areas. */
   .glass-field {
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px solid var(--hairline);
-    box-shadow: inset 0 1px 2px rgba(55, 35, 45, 0.05);
+    color: var(--text);
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
     transition:
       border-color var(--dur-hover) var(--ease),
       background-color var(--dur-hover) var(--ease);
   }
+  .glass-field::placeholder {
+    color: rgba(167, 166, 178, 0.75);
+  }
   .glass-field:hover {
-    background: rgba(255, 255, 255, 0.86);
+    background: rgba(0, 0, 0, 0.36);
   }
   .glass-field:focus {
     outline: none;
-    border-color: rgba(120, 27, 54, 0.55);
-    background: #ffffff;
-    box-shadow: 0 0 0 3px rgba(120, 27, 54, 0.12);
+    border-color: rgba(255, 79, 134, 0.65);
+    background: rgba(0, 0, 0, 0.42);
+    box-shadow: 0 0 0 3px rgba(255, 61, 127, 0.16);
+  }
+  select.glass-field option {
+    background: #1b1b23;
+    color: var(--text);
   }
 
   /* Neutral glass button. */
   .btn-glass {
-    background: rgba(255, 255, 255, 0.6);
-    border: 1px solid rgba(231, 226, 227, 0.9);
-    box-shadow: var(--highlight), 0 1px 2px rgba(55, 35, 45, 0.05);
+    color: var(--text);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.2);
   }
   .btn-glass:hover {
-    background: rgba(255, 255, 255, 0.92);
-    border-color: rgba(184, 108, 129, 0.35);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.07));
+    border-color: rgba(255, 120, 160, 0.4);
   }
 
-  /* Burgundy primary button with a soft top sheen. */
+  /* Primary action: crimson to rose, with a glass sheen (no neon glow). */
   .btn-burgundy {
     color: #ffffff;
-    background-color: var(--burgundy);
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 55%);
-    border: 1px solid rgba(90, 15, 38, 0.6);
+    background-color: var(--liquid-crimson);
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%),
+      linear-gradient(135deg, #c51d4a, #ff3d7f);
+    border: 1px solid rgba(255, 140, 175, 0.45);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      0 4px 14px rgba(120, 27, 54, 0.26);
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      0 6px 18px rgba(197, 29, 74, 0.35);
   }
   .btn-burgundy:hover {
     background-color: var(--burgundy-hover);
   }
 
-  /* Selected subtitle / list item. */
+  /* Selected item: rose-tinted glass with a light edge (nav indicator, subtitles, tabs). */
   .surface-selected {
-    background: linear-gradient(180deg, rgba(248, 237, 241, 0.95), rgba(248, 237, 241, 0.75));
-    border-color: rgba(184, 108, 129, 0.5) !important;
-    box-shadow: var(--highlight), 0 2px 10px rgba(120, 27, 54, 0.08);
+    background: linear-gradient(180deg, rgba(255, 61, 127, 0.26), rgba(197, 29, 74, 0.14));
+    border-color: rgba(255, 130, 170, 0.48) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+      0 6px 20px rgba(197, 29, 74, 0.28);
   }
 
   /* Shared motion helpers (transform/opacity only). */
@@ -357,7 +388,7 @@ body {
 .prose-ai h1 { font-size: 1.2em; }
 .prose-ai h2 { font-size: 1.1em; }
 .prose-ai h3,
-.prose-ai h4 { font-size: 1em; color: var(--burgundy); }
+.prose-ai h4 { font-size: 1em; color: var(--accent); }
 .prose-ai p { margin: 0.5em 0; }
 .prose-ai ul,
 .prose-ai ol { margin: 0.4em 0; padding-left: 1.4em; }
@@ -367,7 +398,7 @@ body {
 .prose-ai li::marker { color: var(--rose); }
 .prose-ai strong { font-weight: 650; }
 .prose-ai code {
-  background: rgba(120, 27, 54, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 4px;
   padding: 0.1em 0.35em;
   font-size: 0.92em;
@@ -375,7 +406,7 @@ body {
 .prose-ai table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.95em; }
 .prose-ai th,
 .prose-ai td { border: 1px solid var(--hairline); padding: 0.3em 0.6em; text-align: left; }
-.prose-ai th { background: rgba(248, 237, 241, 0.7); }
+.prose-ai th { background: rgba(255, 61, 127, 0.12); }
 .prose-ai blockquote {
   border-left: 3px solid var(--rose);
   margin: 0.6em 0;
@@ -397,7 +428,7 @@ body {
   content: '';
   position: absolute;
   border-radius: 9999px;
-  background: rgba(120, 27, 54, 0.28);
+  background: rgba(255, 120, 160, 0.55);
   opacity: 0;
   transform: scale(0.6);
   transition:
@@ -420,6 +451,6 @@ body {
 .stream-caret::after {
   content: '▍';
   margin-left: 2px;
-  color: var(--burgundy);
+  color: var(--accent);
   animation: caret-blink 1s steps(1) infinite;
 }

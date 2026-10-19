@@ -130,7 +130,7 @@ export function StoriesRow({ refreshKey, onNew, myId }: { refreshKey: number; on
       </div>
       {open && (
         <div className="ew-fade fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setOpen(null)}>
-          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl text-white" style={{ background: open.bg ?? '#781b36', minHeight: 360 }} onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl text-[#fff]" style={{ background: open.bg ?? '#781b36', minHeight: 360 }} onClick={(e) => e.stopPropagation()}>
             {images[open.id] && <img src={images[open.id]} alt="" className="absolute inset-0 size-full object-cover" />}
             <div className="relative flex min-h-[360px] flex-col justify-between bg-gradient-to-b from-black/30 via-transparent to-black/50 p-5">
               <div className="flex items-center gap-2 text-sm">
@@ -419,7 +419,7 @@ const PostCard = memo(function PostCard({
         </div>
       )}
       {post.kind === 'question' && post.solvedCommentId && (
-        <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-[#1f7a3a]">
+        <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-[#52d6a0]">
           <CheckCircle2 className="size-4" /> Solved
         </p>
       )}
@@ -584,7 +584,7 @@ function Thread({ post, myId, startWithFix, onCounts }: { post: EwPost; myId: st
 
 function CommentRow({ c, myId, solved, canSolve, onSolve, onDelete, onReport }: { c: EwComment; myId: string | null; solved: boolean; canSolve: boolean; onSolve: () => void; onDelete: () => void; onReport: () => void }): ReactNode {
   return (
-    <div className={cn('rounded-xl bg-white/70 p-3 ring-1 ring-line/60', solved && 'ring-2 ring-[#1f7a3a]/50')}>
+    <div className={cn('rounded-xl bg-white/70 p-3 ring-1 ring-line/60', solved && 'ring-2 ring-[#52d6a0]/50')}>
       <div className="mb-1 flex items-center gap-2 text-xs text-muted">
         <Avatar emoji={c.author.avatar} size={22} />
         <span className="font-medium text-fg">{c.author.name}</span>
