@@ -1,7 +1,7 @@
 {
   "name": "english-learning-companion",
   "productName": "English Learning Companion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-powered English learning companion: learn from movies, save notes, practice with flashcards.",
   "private": true,
   "main": "./out/main/index.js",
@@ -31,6 +31,8 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.19.1",
     "@types/react": "^19.3.0",

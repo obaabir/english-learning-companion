@@ -24,6 +24,7 @@ import { MicButton } from '@renderer/features/voice/VoiceAssistant'
 import { VoiceModeButton } from '@renderer/features/voice/VoiceMode'
 import { Globe2, RotateCw } from 'lucide-react'
 import { useState } from 'react'
+import { AudioLines } from 'lucide-react' // Speaking Coach (added)
 
 interface NavItem {
   page: Page
@@ -36,6 +37,7 @@ const MAIN: NavItem[] = [
   { page: 'movie', label: 'Movie Mode', icon: <Clapperboard className="size-5" /> },
   { page: 'youtube', label: 'YouTube', icon: <YouTubeIcon className="size-5" /> },
   { page: 'room', label: 'Practice', icon: <Sprout className="size-5" /> },
+  { page: 'speaking', label: 'Speaking Coach', icon: <AudioLines className="size-5" /> }, // Speaking Coach (added)
   { page: 'articles', label: 'Articles', icon: <Newspaper className="size-5" /> },
   { page: 'world', label: 'English World', icon: <Globe2 className="size-5" /> }
 ]

@@ -8,6 +8,7 @@ export type Page =
   | 'room'
   | 'articles'
   | 'world'
+  | 'speaking' // Speaking Coach (added)
   | 'notes'
   | 'vocabulary'
   | 'idioms'
