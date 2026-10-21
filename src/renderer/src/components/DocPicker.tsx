@@ -4,6 +4,7 @@ import type { GoogleDocInfo } from '@shared/types'
 import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Button, Input } from '@renderer/components/ui'
+import { useEscape } from '@renderer/lib/navigation'
 
 /**
  * Dialog to create a new Google Doc or pick an existing one. The caller decides
@@ -23,6 +24,8 @@ export function DocPicker({
   onCreate: (title: string) => Promise<void>
   onClose: () => void
 }): ReactNode {
+  // Escape closes it (only the top-most open layer).
+  useEscape(onClose)
   const toastError = useApp((s) => s.toastError)
   const [query, setQuery] = useState('')
   const [docs, setDocs] = useState<GoogleDocInfo[] | null>(null)

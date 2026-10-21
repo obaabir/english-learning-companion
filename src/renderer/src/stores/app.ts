@@ -21,6 +21,20 @@ export type Page =
   | 'prompts'
   | 'settings'
 
+/** The main page: where the app opens, and where Home goes. */
+export const HOME_PAGE: Page = 'movie'
+
+/**
+ * A page with unsaved work registers one of these while the work is unsaved. Leaving the page
+ * (any navigation) then asks: save, discard, or keep editing.
+ */
+export interface LeaveGuard {
+  /** What is unsaved, e.g. "this prompt". */
+  what: string
+  /** Saves the work; resolves false if saving failed (then the user stays). */
+  save: () => Promise<boolean>
+}
+
 export interface Toast {
   id: number
   kind: 'success' | 'error' | 'info'
@@ -32,6 +46,15 @@ export interface Toast {
 interface AppState {
   page: Page
   setPage: (p: Page) => void
+  /** Pages visited before this one (most recent last), for Back. */
+  history: Page[]
+  goBack: () => void
+  goHome: () => void
+  leaveGuard: LeaveGuard | null
+  setLeaveGuard: (g: LeaveGuard | null) => void
+  /** A navigation waiting for the user's answer about unsaved work. */
+  pendingLeave: { to: Page; back: boolean } | null
+  resolveLeave: (choice: 'save' | 'discard' | 'stay') => Promise<void>
 
   settings: AppSettings | null
   setSettings: (s: AppSettings) => void
@@ -54,8 +77,35 @@ interface AppState {
 let toastSeq = 0
 
 export const useApp = create<AppState>((set, get) => ({
-  page: 'movie',
-  setPage: (page) => set({ page }),
+  page: HOME_PAGE,
+  setPage: (to) => {
+    const { page, leaveGuard, history } = get()
+    if (to === page) return
+    if (leaveGuard) return set({ pendingLeave: { to, back: false } })
+    set({ page: to, history: [...history, page].slice(-50) })
+  },
+  history: [],
+  goBack: () => {
+    const { page, history, leaveGuard } = get()
+    // Nothing to go back to: Back goes Home.
+    const to = history.length ? history[history.length - 1] : HOME_PAGE
+    if (to === page) return
+    if (leaveGuard) return set({ pendingLeave: { to, back: true } })
+    set({ page: to, history: history.slice(0, -1) })
+  },
+  goHome: () => get().setPage(HOME_PAGE),
+  leaveGuard: null,
+  setLeaveGuard: (leaveGuard) => set({ leaveGuard }),
+  pendingLeave: null,
+  resolveLeave: async (choice) => {
+    const { pendingLeave, leaveGuard } = get()
+    if (!pendingLeave) return
+    if (choice === 'stay') return set({ pendingLeave: null })
+    if (choice === 'save' && leaveGuard && !(await leaveGuard.save())) return set({ pendingLeave: null })
+    set({ leaveGuard: null, pendingLeave: null })
+    if (pendingLeave.back) get().goBack()
+    else get().setPage(pendingLeave.to)
+  },
 
   settings: null,
   setSettings: (settings) => set({ settings }),

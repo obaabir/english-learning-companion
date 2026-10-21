@@ -8,6 +8,7 @@ import { getApiKey, setApiKey, SPEAKING_COACH_MODEL, testApiKey } from './gemini
 import { ACCEPT_ATTR, ACCEPTED_EXTENSIONS, useSpeakingCoach } from './speakingCoachStore'
 import { formatBytes, formatClock } from './transcriptFormat'
 import { TranscriptWorkspace } from './TranscriptWorkspace'
+import { useEscape } from '@renderer/lib/navigation'
 
 /** Speaking Coach: upload a recording of yourself speaking → audio extracted locally → verbatim transcript. */
 export function SpeakingCoachView(): ReactNode {
@@ -56,6 +57,8 @@ export function SpeakingCoachView(): ReactNode {
 
 /** Gemini API key for this section (beta): kept in localStorage on this computer, never in the code. */
 function SettingsBox({ onClose }: { onClose: () => void }): ReactNode {
+  // Escape closes it (only the top-most open layer).
+  useEscape(onClose)
   const { toast } = useApp.getState()
   const [saved, setSaved] = useState(() => !!getApiKey())
   const [draft, setDraft] = useState('')

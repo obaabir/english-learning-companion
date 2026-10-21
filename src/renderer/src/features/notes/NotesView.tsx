@@ -12,6 +12,7 @@ import { useMovie } from '@renderer/stores/movie'
 import { useYouTube } from '@renderer/stores/youtube'
 import { Markdown } from '@renderer/components/Markdown'
 import { cn } from '@renderer/lib/cn'
+import { useLeaveGuard } from '@renderer/lib/navigation'
 
 const kindLabel = (k: NoteKind): string => NOTE_KINDS.find((x) => x.value === k)?.label ?? k
 
@@ -395,17 +396,21 @@ function UserNoteEditor({ note, onChanged }: { note: Note; onChanged: (n: Note) 
   const [text, setText] = useState(note.userNote ?? '')
   const [saving, setSaving] = useState(false)
   const dirty = text.trim() !== (note.userNote ?? '')
-  const save = async (): Promise<void> => {
+  const save = async (): Promise<boolean> => {
     setSaving(true)
     try {
       onChanged(await invoke('notes:updateUserNote', { id: note.id, userNote: text }))
       toast('success', 'Note saved')
+      return true
     } catch (err) {
       toastError(err)
+      return false
     } finally {
       setSaving(false)
     }
   }
+  // Leaving the page with an unsaved note asks first.
+  useLeaveGuard('your note', dirty, save)
   return (
     <section className="glass-inset rounded-xl p-4">
       <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">My note</h3>

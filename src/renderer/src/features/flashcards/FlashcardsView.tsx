@@ -9,6 +9,7 @@ import { FlashSentencePractice } from './fsp/FlashSentencePractice'
 import { RevisionDashboard } from './RevisionDashboard'
 import { useIntents } from '@renderer/stores/intents'
 import { FlashcardEditor } from './FlashcardEditor'
+import { useEscape } from '@renderer/lib/navigation'
 
 const RATINGS: { rating: ReviewRating; label: string; key: string; className: string }[] = [
   { rating: 1, label: 'Again', key: '1', className: 'text-danger' },
@@ -298,6 +299,8 @@ function Row({ label, children }: { label: string; children: ReactNode }): React
 function BrowseList({ cards, onDeleted }: { cards: Flashcard[]; onDeleted: () => void }): ReactNode {
   const toastError = useApp((s) => s.toastError)
   const [editing, setEditing] = useState<Flashcard | null>(null)
+  // Escape closes the edit dialog.
+  useEscape(() => setEditing(null), editing !== null)
   if (!cards.length) return <EmptyState title="No flashcards yet" />
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">

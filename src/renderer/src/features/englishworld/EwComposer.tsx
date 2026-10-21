@@ -8,6 +8,7 @@ import { cn } from '@renderer/lib/cn'
 import { KIND_LABEL, MAX_TEXT, POST_TAGS, QUESTION_TAGS, STORY_COLORS, personalInfo } from './ewLogic'
 import { compressPhoto } from './ewImage'
 import { ew, useEwMe } from './ewStore'
+import { useEscape } from '@renderer/lib/navigation'
 
 export interface ComposerPreset {
   kind?: EwKind
@@ -18,6 +19,8 @@ export interface ComposerPreset {
 }
 
 export function EwComposer({ preset, onClose, onPosted }: { preset: ComposerPreset; onClose: () => void; onPosted: () => void }): ReactNode {
+  // Escape closes it (only the top-most open layer).
+  useEscape(onClose)
   const me = useEwMe()
   const [kind, setKind] = useState<EwKind>(preset.kind ?? 'post')
   const [text, setText] = useState(preset.text ?? '')
@@ -299,6 +302,8 @@ export function EwComposer({ preset, onClose, onPosted }: { preset: ComposerPres
 }
 
 export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }): ReactNode {
+  // Escape closes it (only the top-most open layer).
+  useEscape(onClose)
   return (
     <div className="ew-fade fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
       <div role="alertdialog" aria-modal="true" aria-label={title} className="ew-card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>

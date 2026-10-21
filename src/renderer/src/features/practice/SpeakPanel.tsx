@@ -9,6 +9,7 @@ import { cn } from '@renderer/lib/cn'
 import { PracticeContext, playAiVoice, playSegment, recordFor, usePractice } from './practiceCore'
 import { ladder, matchHeard, type LadderStage } from './practiceLogic'
 import { recordingToWavBase64 } from './audio'
+import { useEscape } from '@renderer/lib/navigation'
 
 const STAGE_COLOR: Record<LadderStage, string> = {
   listen: 'bg-[#b86c81]',
@@ -175,6 +176,8 @@ export function SpeakPanel({ line }: { line: SubtitleLine }): ReactNode {
   }
 
   const close = (): void => openSpeak(null)
+  // Escape closes the panel.
+  useEscape(close)
   const backToVideo = (): void => {
     close()
     if (host !== 'room' && practice) void practice.player.play().catch(() => undefined)

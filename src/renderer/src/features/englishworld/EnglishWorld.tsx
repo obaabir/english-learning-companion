@@ -10,6 +10,7 @@ import { AVATARS, LEVELS, personalInfo, quietHours, timeAgo } from './ewLogic'
 import { EwComposer, type ComposerPreset } from './EwComposer'
 import { Avatar, Feed, Skeleton, StoriesRow, type FeedView } from './EwFeed'
 import { ew, useEwMe } from './ewStore'
+import { useEscape } from '@renderer/lib/navigation'
 import './ew.css'
 
 const TABS: { id: FeedView; label: string }[] = [
@@ -383,6 +384,8 @@ function World({ status, profile, onProfile, onDisconnect }: { status: EwStatus;
 }
 
 function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }): ReactNode {
+  // Escape closes it (only the top-most open layer).
+  useEscape(onClose)
   return (
     <>
       <div className="ew-backdrop" onClick={onClose} aria-hidden />

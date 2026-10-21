@@ -9,6 +9,7 @@ import { cn } from '@renderer/lib/cn'
 import { FEED_LIMIT, KIND_LABEL, REACTIONS, REPORT_REASONS, challengeFor, localDay, personalInfo, rankForYou, timeAgo, wordDiff } from './ewLogic'
 import { Dialog, type ComposerPreset } from './EwComposer'
 import { ew, useEwMe } from './ewStore'
+import { useEscape } from '@renderer/lib/navigation'
 
 export type FeedView = 'foryou' | 'following' | 'challenge' | 'questions'
 
@@ -36,6 +37,8 @@ export function Skeleton(): ReactNode {
 }
 
 function ReportDialog({ target, onClose }: { target: { type: EwTarget; id: string; label: string }; onClose: () => void }): ReactNode {
+  // Escape closes it (only the top-most open layer).
+  useEscape(onClose)
   const [sent, setSent] = useState(false)
   const send = async (reason: EwReportReason): Promise<void> => {
     try {
@@ -90,6 +93,8 @@ export function StoriesRow({ refreshKey, onNew, myId }: { refreshKey: number; on
   const blocked = useEwMe((s) => s.blocked)
   const [stories, setStories] = useState<EwPost[] | null>(null)
   const [open, setOpen] = useState<EwPost | null>(null)
+  // Escape closes the open story.
+  useEscape(() => setOpen(null), open !== null)
   const [images, setImages] = useState<Record<string, string>>({})
 
   useEffect(() => {

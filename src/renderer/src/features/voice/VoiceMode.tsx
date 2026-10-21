@@ -5,6 +5,7 @@ import { Badge, Button, Input } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
 import { useVoice } from './voiceStore'
 import { endVoiceMode, initVoiceMode, sendTyped, startVoiceMode, stopAnswer, toggleMute, useVoiceMode, voiceModeActive, type VoiceModeStatus } from './voiceModeStore'
+import { useEscape } from '@renderer/lib/navigation'
 
 const systemZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -52,6 +53,8 @@ export function VoiceModePanel(): ReactNode {
     if (s.open) useVoice.getState().setOpen(false)
   }, [s.open])
 
+  // Escape closes the panel (like ×; a running session keeps running, as before).
+  useEscape(() => useVoiceMode.setState({ open: false, error: null, activity: null }), s.open)
   if (!s.open) return null
   const active = voiceModeActive()
   const live = s.mode === 'live'

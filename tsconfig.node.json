@@ -14,5 +14,6 @@
     "baseUrl": ".",
     "paths": { "@shared/*": ["src/shared/*"] }
   },
-  "include": ["electron.vite.config.ts", "vitest.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*", "src/renderer/src/stores/movie.ts", "src/renderer/src/features/practice/practiceLogic.ts", "src/renderer/src/features/speakingcoach/transcriptFormat.ts", "tests/**/*"]
+  "include": ["electron.vite.config.ts", "vitest.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*", "src/renderer/src/stores/movie.ts", "src/renderer/src/features/practice/practiceLogic.ts", "src/renderer/src/features/speakingcoach/transcriptFormat.ts", "tests/**/*"],
+  "exclude": ["tests/navigation.test.ts"]
 }

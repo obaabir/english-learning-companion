@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import {
+  ArrowLeft,
   BookA,
   BookMarked,
   BookOpen,
@@ -7,6 +8,7 @@ import {
   Clapperboard,
   Gamepad2,
   GraduationCap,
+  House,
   Layers,
   Library,
   ListChecks,
@@ -19,7 +21,8 @@ import {
   Sprout,
   Wand2
 } from 'lucide-react'
-import { useApp, type Page } from '@renderer/stores/app'
+import { HOME_PAGE, useApp, type Page } from '@renderer/stores/app'
+import { useEscape } from '@renderer/lib/navigation'
 import { cn } from '@renderer/lib/cn'
 import { YouTubeIcon } from '@renderer/features/youtube/YouTubeIcon'
 import { listenOnce } from '@renderer/features/voice/VoiceAssistant'
@@ -78,6 +81,29 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
   // While a JARVIS (Voice Mode) session is on, its button stays in the side bar: you always see that the
   // microphone is in use and can end it with one click.
   const voiceOn = useVoiceMode((s) => s.status !== 'off' && s.status !== 'error')
+  const pendingLeave = useApp((s) => s.pendingLeave)
+
+  // Back from anywhere: Alt+Left, or the mouse's back button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.altKey && e.key === 'ArrowLeft' && !e.defaultPrevented) {
+        e.preventDefault()
+        useApp.getState().goBack()
+      }
+    }
+    const onMouse = (e: MouseEvent): void => {
+      if (e.button === 3) {
+        e.preventDefault()
+        useApp.getState().goBack()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mouseup', onMouse)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mouseup', onMouse)
+    }
+  }, [])
 
   // The selection highlight glides to the active item (transform only). Size is set without animation.
   useLayoutEffect(() => {
@@ -113,6 +139,8 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
           className="surface-selected pointer-events-none absolute top-0 left-0 rounded-xl border opacity-0 transition-transform duration-[260ms] ease-[var(--ease)] motion-reduce:transition-none"
         />
         <MenuButton ref={menuButtonRef} active={MENU_PAGES.has(page)} open={menuOpen} onToggle={() => setMenuOpen(!menuOpen)} />
+        {/* Inside a feature: Back (previous screen) and Home (the main page). Hidden on Home itself. */}
+        {page !== HOME_PAGE && <BackHome />}
         <LibraryButton active={LIBRARY_PAGES.has(page)} open={libraryAt !== null} onToggle={(top) => setLibraryAt(libraryAt === null ? top : null)} />
         <div className="my-1.5 h-px w-8 shrink-0 bg-white/10" aria-hidden />
         {voiceOn && <VoiceModeButton />}
@@ -136,6 +164,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
       )}
       {libraryAt !== null && <LibraryMenu top={libraryAt} page={page} onClose={() => setLibraryAt(null)} />}
       <main className="relative min-w-0 flex-1">{children}</main>
+      {pendingLeave && <LeaveDialog />}
     </div>
   )
 }
@@ -388,6 +417,71 @@ function LibraryMenu({ top, page, onClose }: { top: number; page: Page; onClose:
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/** Back and Home, under ☰ while you are inside a feature. */
+function BackHome(): ReactNode {
+  const goBack = useApp((s) => s.goBack)
+  const goHome = useApp((s) => s.goHome)
+  const cls =
+    'motion-press relative z-10 flex h-8 w-11 shrink-0 items-center justify-center gap-1 rounded-lg text-[10.5px] font-medium text-muted hover:text-fg lg:w-[66px]'
+  return (
+    <div className="flex shrink-0 flex-col items-center gap-0.5" data-back-home>
+      <button data-nav="back" onClick={goBack} aria-label="Back" title="Back to the previous screen (Alt+←)" className={cls}>
+        <ArrowLeft className="size-4 shrink-0" />
+        <span className="hidden leading-none lg:block">Back</span>
+      </button>
+      <button data-nav="home" onClick={goHome} aria-label="Home" title="Home (Movies)" className={cls}>
+        <House className="size-4 shrink-0" />
+        <span className="hidden leading-none lg:block">Home</span>
+      </button>
+    </div>
+  )
+}
+
+/** Leaving a page with unsaved work: save, discard, or keep editing (Escape keeps editing). */
+function LeaveDialog(): ReactNode {
+  const guard = useApp((s) => s.leaveGuard)
+  const resolveLeave = useApp((s) => s.resolveLeave)
+  const [saving, setSaving] = useState(false)
+  const stay = (): void => void resolveLeave('stay')
+  useEscape(stay)
+  const keepRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => keepRef.current?.focus(), [])
+  return (
+    <div className="anim-fade-in fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onMouseDown={stay}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="leave-title"
+        className="glass-elevated anim-pop-in w-full max-w-md rounded-2xl p-5"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <h2 id="leave-title" className="text-base font-semibold">
+          Save your changes?
+        </h2>
+        <p className="mt-1.5 text-sm text-muted">You have unsaved changes to {guard?.what ?? 'this page'}. Nothing is deleted if you leave.</p>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button ref={keepRef} onClick={stay} className="motion-press h-9 rounded-xl border border-white/15 px-3.5 text-sm font-medium">
+            Keep editing
+          </button>
+          <button onClick={() => void resolveLeave('discard')} className="motion-press h-9 rounded-xl border border-white/15 px-3.5 text-sm font-medium">
+            Discard changes
+          </button>
+          <button
+            disabled={saving}
+            onClick={() => {
+              setSaving(true)
+              void resolveLeave('save').finally(() => setSaving(false))
+            }}
+            className="btn-burgundy motion-press h-9 rounded-xl px-3.5 text-sm font-semibold"
+          >
+            {saving ? 'Saving…' : 'Save and leave'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

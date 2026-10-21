@@ -5,6 +5,7 @@ import { invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { Badge, Button, Field, Input, PanelHeader, Textarea } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
+import { useLeaveGuard } from '@renderer/lib/navigation'
 
 interface Draft {
   id?: number
@@ -25,20 +26,24 @@ export function PromptManager(): ReactNode {
   const current = prompts.find((p) => p.id === draft?.id)
   const dirty = !!draft && (!current || current.name !== draft.name || current.instruction !== draft.instruction)
 
-  const save = async (): Promise<void> => {
-    if (!draft) return
+  const save = async (): Promise<boolean> => {
+    if (!draft) return true
     setSaving(true)
     try {
       const saved = await invoke('prompts:save', draft)
       await loadPrompts()
       setDraft(toDraft(saved))
       toast('success', 'Prompt saved')
+      return true
     } catch (err) {
       toastError(err)
+      return false
     } finally {
       setSaving(false)
     }
   }
+  // Leaving with unsaved edits asks first: save, discard, or keep editing.
+  useLeaveGuard(`the prompt "${draft?.name || 'New prompt'}"`, dirty, save)
 
   const remove = async (p: Prompt): Promise<void> => {
     if (prompts.length <= 1) return toast('info', 'Keep at least one prompt.')

@@ -10,6 +10,7 @@ import { cn } from '@renderer/lib/cn'
 import { currentSelection, handleText, runAction } from './voiceActions'
 import { normalizeWav, recordCommand, speak, stopSpeaking, useVoice } from './voiceStore'
 import { voiceModeActive } from './voiceModeStore'
+import { useEscape } from '@renderer/lib/navigation'
 
 let stopRecording: (() => void) | null = null
 
@@ -134,6 +135,8 @@ export function VoiceAssistant(): ReactNode {
     }
   }, [])
 
+  // Escape closes the panel (like ×).
+  useEscape(() => (stopSpeaking(), v.setOpen(false)), v.open)
   if (!v.open) return null
   const submitTyped = (): void => {
     if (!typed.trim()) return
