@@ -104,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
       {/* Icons only on narrow windows (e.g. laptop split-screen); names shown from 1024 px. */}
       <nav
         ref={navRef}
-        className="glass-panel relative flex w-14 shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-3 [scrollbar-width:none] lg:w-[80px]"
+        className="glass-panel relative flex w-14 shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-3 [scrollbar-width:none]! lg:w-[80px]"
         aria-label="Main"
       >
         <div
