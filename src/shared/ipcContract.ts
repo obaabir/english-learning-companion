@@ -36,7 +36,7 @@ import type {
 import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesson } from './fsp'
 import type { EwRequest } from './ew'
 import type { Article, ArticleDetail, ArticleInput, WebSelection } from './articles'
-import type { WeatherReport } from './voice'
+import type { HomeWeather, WeatherReport } from './voice'
 import type { LiveEvent } from './liveTools'
 import type { VbAnswer, VbBook, VbDashboard, VbDraft, VbExtraction, VbItem, VbItemEdit, VbMistake, VbSession, VbSource, VbSourceKind } from './vocabBook'
 
@@ -162,6 +162,8 @@ export interface Api {
   'voice:wake': (args: { on: boolean }) => Promise<{ running: boolean }>
   /** Free weather from Open-Meteo (no key; needs internet). */
   'voice:weather': (args: { city: string }) => Promise<WeatherReport>
+  /** Home page weather: current conditions and when rain is expected (Open-Meteo hourly forecast). */
+  'weather:home': (args: { city: string }) => Promise<HomeWeather>
   /**
    * Voice Mode (Gemini Live, real-time): start a spoken conversation (the key stays in the main
    * process), stream microphone sound (16 kHz PCM, base64), pause it (mute), type into it, end it.

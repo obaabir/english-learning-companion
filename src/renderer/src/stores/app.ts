@@ -3,6 +3,7 @@ import type { AppSettings, Prompt } from '@shared/types'
 import { errorMessage, invoke } from '@renderer/lib/api'
 
 export type Page =
+  | 'home'
   | 'movie'
   | 'youtube'
   | 'room'
@@ -22,7 +23,7 @@ export type Page =
   | 'settings'
 
 /** The main page: where the app opens, and where Home goes. */
-export const HOME_PAGE: Page = 'movie'
+export const HOME_PAGE: Page = 'home'
 
 /**
  * A page with unsaved work registers one of these while the work is unsaved. Leaving the page

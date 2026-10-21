@@ -507,6 +507,8 @@ export interface RoomHome {
   streak: number
   shieldsLeft: number
   shadowedToday: number
+  /** Lines reviewed today (counts toward the daily cap). */
+  reviewedToday: number
   practisedToday: boolean
   /** Today's capped queue, oldest first. */
   queue: ShadowLine[]

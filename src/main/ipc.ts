@@ -50,7 +50,7 @@ import { createNoteSync } from './notesSync'
 import { getArticleDetail, listArticles, recordArticle, setArticleNote } from './db/repos/articles'
 import { buildArticleExplain } from './ai/article'
 import { recognizeWav, WakeListener } from './voice/recognizer'
-import { getWeather } from './voice/weather'
+import { getHomeWeather, getWeather } from './voice/weather'
 import { LiveVoice } from './voice/live'
 import { currentTime, weatherForVoice } from './voice/liveMainTools'
 import { initialTarget, isTargetLike, normTerm } from '@shared/vocab'
@@ -606,6 +606,7 @@ export function registerIpc(s: Services): void {
   })
   // Chromium's network stack (system proxy, reliable DNS) rather than Node's fetch.
   handle('voice:weather', ({ city }) => getWeather(city, (url, init) => net.fetch(String(url), { ...init, signal: AbortSignal.timeout(30_000) })))
+  handle('weather:home', ({ city }) => getHomeWeather(city, (url, init) => net.fetch(String(url), { ...init, signal: AbortSignal.timeout(30_000) })))
 
   // ---- Voice Mode (Gemini Live): a real-time spoken conversation. The key stays in this process;
   // the model can only use the validated app tools (shared/liveTools). Time comes from this

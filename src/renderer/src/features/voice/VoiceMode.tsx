@@ -44,6 +44,7 @@ export function VoiceModeButton(): ReactNode {
 export function VoiceModePanel(): ReactNode {
   const s = useVoiceMode()
   const hasKey = useApp((a) => !!a.settings?.hasGeminiKey)
+  const page = useApp((a) => a.page)
   const [showSettings, setShowSettings] = useState(false)
   const [typed, setTyped] = useState('')
 
@@ -55,7 +56,8 @@ export function VoiceModePanel(): ReactNode {
 
   // Escape closes the panel (like ×; a running session keeps running, as before).
   useEscape(() => useVoiceMode.setState({ open: false, error: null, activity: null }), s.open)
-  if (!s.open) return null
+  // On Home the orb is the interface; the panel only appears there for the one-time consent question.
+  if (!s.open || (page === 'home' && !s.askConsent)) return null
   const active = voiceModeActive()
   const live = s.mode === 'live'
   return (

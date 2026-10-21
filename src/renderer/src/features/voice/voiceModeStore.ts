@@ -8,7 +8,7 @@ import { useIntents } from '@renderer/stores/intents'
 import { recordingToWavBase64 } from '@renderer/features/practice/audio'
 import { useFsp } from '@renderer/features/flashcards/fsp/fspStore'
 import { topMistakes, fspToday } from '@renderer/features/flashcards/fsp/fspLogic'
-import { currentSelection, handleText, runAction } from './voiceActions'
+import { currentSelection, handleText, runAction, runPlayer } from './voiceActions'
 import { normalizeWav, recordCommand, speak, stopSpeaking, useVoice } from './voiceStore'
 import { PcmPlayer, startMic, type Mic } from './liveAudio'
 
@@ -258,7 +258,10 @@ function activityText(name: string, args: Record<string, string>, result?: Recor
     get_current_time: 'Checked the time (this computer’s clock)',
     get_weather: `Checked the weather${args.city ? ` in ${args.city}` : ''} (Open-Meteo)`,
     get_selected_item: 'Read your selection',
-    open_section: `Opened ${args.section?.replace('_', ' ')}`,
+    open_section: `Opened ${args.section?.replace(/_/g, ' ')}`,
+    go_back: 'Went back',
+    control_movie: `Movie: ${args.action ?? ''}`,
+    refresh_section: 'Refreshed',
     start_revision: 'Started revision',
     save_selected_item: 'Saved the selection',
     add_selected_to_flashcards: 'Flashcard',
@@ -270,6 +273,15 @@ function activityText(name: string, args: Record<string, string>, result?: Recor
 
 // ---- app tools the voice model may use (already validated in the main process; checked again here)
 const SECTIONS: Record<string, { page: Page; label: string }> = {
+  home: { page: 'home', label: 'Home' },
+  speaking_coach: { page: 'speaking', label: 'Speaking Coach' },
+  ielts: { page: 'ielts', label: 'IELTS' },
+  english_vocabulary: { page: 'vocabulary', label: 'English Vocabulary' },
+  idioms: { page: 'idioms', label: 'Idioms and Expressions' },
+  sentence_structures: { page: 'structures', label: 'Sentence Structures' },
+  error_log: { page: 'errors', label: 'Error Log' },
+  english_world: { page: 'world', label: 'English World' },
+  prompts: { page: 'prompts', label: 'Prompts' },
   articles: { page: 'articles', label: 'Articles' },
   flashcards: { page: 'flashcards', label: 'Flashcards' },
   games: { page: 'games', label: 'Games' },
@@ -295,6 +307,16 @@ export async function runLiveTool(name: string, args: Record<string, string>): P
       app.setPage(target.page)
       return { ok: true, message: `Opened ${target.label}.` }
     }
+    case 'go_back':
+      app.goBack()
+      return { ok: true, message: 'Went back.' }
+    case 'control_movie': {
+      const r = await runPlayer(args.action as 'play' | 'pause' | 'open')
+      return r.ok ? { ok: true, message: r.reply } : { ok: false, error: r.reply }
+    }
+    case 'refresh_section':
+      window.dispatchEvent(new Event('elc:reload-section'))
+      return { ok: true, message: 'Refreshed this section.' }
     case 'start_revision': {
       const r = await runAction({ type: 'revision', start: true }, null)
       return { ok: !!r?.ok, message: r?.reply ?? '' }

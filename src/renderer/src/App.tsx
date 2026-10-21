@@ -15,6 +15,7 @@ import { EnglishWorld } from '@renderer/features/englishworld/EnglishWorld'
 import { ArticlesView } from '@renderer/features/articles/ArticlesView'
 import { GamesView } from '@renderer/features/games/GamesView'
 import { VocabBookView } from '@renderer/features/vocabbook/VocabBookView'
+import { HomeView } from '@renderer/features/home/HomeView'
 import { SpeakingCoachView } from '@renderer/features/speakingcoach/SpeakingCoachView' // Speaking Coach (added)
 import { useArticles } from '@renderer/features/articles/articleStore'
 import { Toasts } from '@renderer/components/Toasts'
@@ -97,6 +98,7 @@ export function App(): ReactNode {
         )}
         {page !== 'movie' && page !== 'youtube' && page !== 'articles' && (
           <div key={`${page}-${reloads[page] ?? 0}`} className="anim-fade-in h-full">
+            {page === 'home' && <HomeView />}
             {page === 'notes' && <NotesView key="notes" mode="all" />}
             {page === 'structures' && <NotesView key="structures" mode="structures" />}
             {page === 'vocabulary' && <NotesView key="vocabulary" mode="vocabulary" />}

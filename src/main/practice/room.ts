@@ -61,6 +61,7 @@ export class PracticeRoom {
       streak: streakToday(streak, active, today),
       shieldsLeft: shieldsLeft(streak, today),
       shadowedToday: lines.filter((l) => l.shadowDays.includes(today)).length,
+      reviewedToday,
       practisedToday: active.has(today),
       queue: todayQueue(lines, today, Math.max(0, cap - reviewedToday)),
       dailyCap: cap,

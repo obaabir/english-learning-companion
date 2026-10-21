@@ -4,7 +4,26 @@
  * No tool runs code, opens files or programs, or deletes anything.
  */
 
-export const LIVE_SECTIONS = ['articles', 'vocabulary_book', 'flashcards', 'games', 'notes', 'movie', 'youtube', 'practice', 'settings'] as const
+export const LIVE_SECTIONS = [
+  'home',
+  'movie',
+  'youtube',
+  'speaking_coach',
+  'articles',
+  'practice',
+  'flashcards',
+  'games',
+  'vocabulary_book',
+  'ielts',
+  'notes',
+  'english_vocabulary',
+  'idioms',
+  'sentence_structures',
+  'error_log',
+  'english_world',
+  'prompts',
+  'settings'
+] as const
 export type LiveSection = (typeof LIVE_SECTIONS)[number]
 
 export const LIVE_SAVE_KINDS = ['word', 'phrase', 'idiom', 'phrasal', 'collocation', 'sentence', 'structure', 'grammar'] as const
@@ -45,6 +64,14 @@ const TOOLS: ToolDef[] = [
     params: { section: { type: 'STRING', description: 'The section to open.', enum: LIVE_SECTIONS } },
     required: ['section']
   },
+  { name: 'go_back', description: 'Goes back to the previous screen of the app.', params: {} },
+  {
+    name: 'control_movie',
+    description: 'Controls the movie player (VLC/mpv) used by Movie Mode: play, pause, or open a movie file (the user picks the file).',
+    params: { action: { type: 'STRING', description: 'What to do.', enum: ['play', 'pause', 'open'] } },
+    required: ['action']
+  },
+  { name: 'refresh_section', description: 'Reloads the section on screen (when it looks stuck or out of date).', params: {} },
   { name: 'start_revision', description: 'Opens Flashcards and starts today’s revision (review) session.', params: {} },
   {
     name: 'save_selected_item',
@@ -119,7 +146,7 @@ How to talk:
 Facts and actions:
 - Time or date: always call get_current_time. Weather: always call get_weather; say clearly which part is the current conditions and which part is today's forecast (an estimate). Never invent weather or time.
 - "This", "this word", "the selected word": call get_selected_item first.
-- App actions (open a section, start revision, save, make a flashcard, show mistakes): use the tools. Only say an action is done if the tool result says ok. If a tool reports a problem, tell the user simply what to do.
+- App actions (open any section, go back, go home = open_section "home", play/pause/open a movie, refresh, start revision, save, make a flashcard, show mistakes): use the tools. When the user asks to open or do something in the app, do it right away with the tool, then say briefly what you did. Only say an action is done if the tool result says ok. If a tool reports a problem, tell the user simply what to do.
 - Save or make flashcards only when the user asks. Nothing can be deleted by voice.
 - If the user says goodbye or asks to stop talking, call end_voice_session.`
 

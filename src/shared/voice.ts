@@ -3,6 +3,9 @@ import type { NoteKind } from './types'
 
 /** App sections that voice can open (same ids as the app's navigation). */
 export type VoicePage =
+  | 'home'
+  | 'speaking'
+  | 'vocabbook'
   | 'movie'
   | 'youtube'
   | 'room'
@@ -25,6 +28,12 @@ export type VoiceAction =
   | { type: 'save'; kind: NoteKind; label: string }
   | { type: 'flashcard' }
   | { type: 'open'; page: VoicePage; label: string }
+  /** Back to the previous screen. */
+  | { type: 'back' }
+  /** The movie player (VLC / mpv): play, pause, or open a movie. */
+  | { type: 'player'; command: 'play' | 'pause' | 'open' }
+  /** Reload the section on screen. */
+  | { type: 'refresh' }
   | { type: 'revision'; start: boolean }
   | { type: 'game'; mode: GameMode; label: string }
   | { type: 'read'; what: 'sentence' | 'word' | 'selection' }
@@ -43,6 +52,9 @@ export type VoiceAction =
   | { type: 'unknown' }
 
 const PAGES: { page: VoicePage; label: string; words: RegExp }[] = [
+  { page: 'home', label: 'Home', words: /\bhome\b|\bmain (page|screen)\b|\bdashboard\b/ },
+  { page: 'speaking', label: 'Speaking Coach', words: /\bspeaking( coach)?\b|\btranscripts?\b/ },
+  { page: 'vocabbook', label: 'Vocabulary Book', words: /\b(vocabulary|word) book\b/ },
   { page: 'articles', label: 'Articles', words: /\barticles?\b|\breader\b|\bbrowser\b/ },
   { page: 'ielts', label: 'IELTS', words: /\bielts\b|\bi e l t s\b|\beye? elts\b/ },
   { page: 'errors', label: 'Error Log', words: /\berror log\b|\bmistakes?\b/ },
@@ -125,6 +137,14 @@ export function parseCommand(raw: string): VoiceAction {
   if (/^(explain|translate|what does this mean|meaning of this)\b/.test(t)) return { type: 'explain', bangla: /\bbangla\b|\bbengali\b|\bbangle\b/.test(t) || /^translate\b/.test(t) }
 
   if (/\b(flash ?cards?|flash card)\b/.test(t) && /^(add|make|create|put|save|turn)\b/.test(t)) return { type: 'flashcard' }
+
+  // Navigation and the movie player.
+  if (/^(go )?back\b|^previous (page|screen)$/.test(t)) return { type: 'back' }
+  if (/^(go |take me )?home( page| screen)?$/.test(t)) return { type: 'open', page: 'home', label: 'Home' }
+  if (/^(refresh|reload)\b/.test(t)) return { type: 'refresh' }
+  if (/^pause\b|^stop the (movie|video|film)\b/.test(t)) return { type: 'player', command: 'pause' }
+  if (/^(play|resume|continue)( the)?( movie| video| film)?$/.test(t)) return { type: 'player', command: 'play' }
+  if (/^(open|play|start|choose|pick) (a |the )?(new )?(movie|film)( file)?$/.test(t)) return { type: 'player', command: 'open' }
 
   if (/^(save|add|keep|store)\b/.test(t)) {
     const k = SAVE_KINDS.find((s) => s.words.test(t))
@@ -228,6 +248,15 @@ export const COMMAND_PHRASES: string[] = (() => {
     'help',
     'what can you do',
     'delete this chat',
+    'go back',
+    'back',
+    'go home',
+    'pause the movie',
+    'pause',
+    'play the movie',
+    'resume',
+    'open a movie',
+    'refresh',
     'open i e l t s',
     'open the ielts section'
   ]
@@ -252,7 +281,10 @@ export const VOICE_EXAMPLES = [
   'Save this sentence structure',
   'Add this to flashcards',
   'Open Articles',
-  'Open IELTS',
+  'Open Speaking Coach',
+  'Go back',
+  'Go home',
+  'Pause the movie',
   "Show today's revision",
   'Start a vocabulary game',
   'Show my saved notes',
@@ -289,4 +321,59 @@ export function weatherText(code: number): string {
 export function weatherSentence(w: WeatherReport): string {
   const rain = w.rainChance != null ? `, ${w.rainChance}% chance of rain` : ''
   return `In ${w.place} it's ${Math.round(w.temperature)} degrees and ${w.description}, feels like ${Math.round(w.feelsLike)}. Today: high ${Math.round(w.high)}, low ${Math.round(w.low)}${rain}.`
+}
+
+/** Home page weather: current conditions plus when rain is expected (from the hourly forecast). */
+export interface HomeWeather extends WeatherReport {
+  /** Weather code for the icon. */
+  code: number
+  isDay: boolean
+  /** The place's time zone (IANA) and the forecast's local "now" (YYYY-MM-DDTHH:MM). */
+  timezone: string
+  localTime: string
+  /** First stretch in the next 18 hours where rain is likely, or null if none is forecast. */
+  rain: RainWindow | null
+  /** False when the forecast had no hourly rain data (then nothing is said about rain timing). */
+  hourlyAvailable: boolean
+  /** When this was fetched (ms since epoch). */
+  fetchedAt: number
+}
+
+export interface RainWindow {
+  /** Local times "HH:MM" at the place. */
+  start: string
+  end: string
+  /** Highest chance (%) in the stretch. */
+  chance: number
+  /** True if the stretch starts tomorrow (local). */
+  tomorrow: boolean
+}
+
+/** Rain is "likely" in an hour with at least this chance, or at least this much rain (mm). */
+const RAIN_CHANCE = 50
+const RAIN_MM = 0.3
+
+/**
+ * The first stretch of likely rain from now (local) over the next `hours` hours, from Open-Meteo hourly
+ * arrays (local times). Null when no hour reaches the threshold.
+ */
+export function rainWindow(now: string, times: string[], chance: (number | null)[], mm: (number | null)[], hours = 18): RainWindow | null {
+  const nowHour = now.slice(0, 13)
+  let i = times.findIndex((t) => t.slice(0, 13) >= nowHour)
+  if (i < 0) return null
+  const last = Math.min(times.length, i + hours)
+  const likely = (k: number): boolean => (chance[k] ?? 0) >= RAIN_CHANCE || (mm[k] ?? 0) >= RAIN_MM
+  for (; i < last; i++) if (likely(i)) break
+  if (i >= last) return null
+  let j = i
+  let max = chance[i] ?? 0
+  while (j + 1 < times.length && likely(j + 1)) max = Math.max(max, chance[++j] ?? 0)
+  const endHour = new Date(`${times[j]}:00Z`)
+  endHour.setUTCHours(endHour.getUTCHours() + 1)
+  return {
+    start: times[i].slice(11, 16),
+    end: endHour.toISOString().slice(11, 16),
+    chance: Math.round(max),
+    tomorrow: times[i].slice(0, 10) > now.slice(0, 10)
+  }
 }

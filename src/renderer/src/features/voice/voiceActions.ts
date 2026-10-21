@@ -84,6 +84,17 @@ export async function runAction(action: VoiceAction, anySel: VoiceSelection | nu
       app.setPage(action.page as Page)
       return { ok: true, reply: action.page === 'ielts' ? 'Opened IELTS. (The IELTS section itself is not built yet.)' : `Opened ${action.label}.` }
 
+    case 'back':
+      app.goBack()
+      return { ok: true, reply: 'Went back.' }
+
+    case 'refresh':
+      window.dispatchEvent(new Event('elc:reload-section'))
+      return { ok: true, reply: 'Refreshed this section.' }
+
+    case 'player':
+      return runPlayer(action.command)
+
     case 'revision':
       useIntents.getState().request({ flashcardsMode: action.start ? 'review' : 'dashboard' })
       app.setPage('flashcards')
@@ -242,3 +253,19 @@ export async function handleText(text: string, engine: 'windows' | 'gemini' | 't
   }
 }
 
+
+/** Movie player commands (the same actions as the Movie Mode buttons). */
+export async function runPlayer(command: 'play' | 'pause' | 'open'): Promise<ActionResult> {
+  try {
+    if (command === 'open') {
+      useApp.getState().setPage('movie')
+      await invoke('player:open')
+      return { ok: true, reply: 'Choose the movie to open.' }
+    }
+    if (!useMovie.getState().status.connected) return { ok: false, reply: 'No movie is open. Say "open a movie" first.' }
+    await invoke('player:control', { action: command })
+    return { ok: true, reply: command === 'play' ? 'Playing.' : 'Paused.' }
+  } catch (err) {
+    return { ok: false, reply: errorMessage(err) }
+  }
+}
