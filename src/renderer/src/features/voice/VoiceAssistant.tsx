@@ -85,7 +85,7 @@ export function MicButton(): ReactNode {
       title={`${label} · right-click for the voice panel`}
       className={cn(
         'motion-press relative z-10 mb-2 flex size-9 shrink-0 items-center justify-center rounded-xl lg:size-10',
-        status === 'listening' ? 'bg-accent text-accent-fg shadow-[0_0_0_4px_rgba(194,24,91,0.25)]' : status === 'processing' ? 'text-accent' : status === 'error' ? 'text-danger' : status === 'success' ? 'text-[#52d6a0]' : 'text-muted hover:bg-white/55 hover:text-fg'
+        status === 'listening' ? 'bg-accent text-accent-fg shadow-[0_0_0_4px_rgba(255,45,171,0.28)]' : status === 'processing' ? 'text-accent' : status === 'error' ? 'text-danger' : status === 'success' ? 'text-[#52d6a0]' : 'text-muted hover:bg-white/55 hover:text-fg'
       )}
     >
       {status === 'processing' ? <Loader2 className="size-[18px] animate-spin" /> : status === 'error' ? <MicOff className="size-[18px]" /> : <Mic className={cn('size-[18px]', status === 'listening' && 'animate-pulse')} />}

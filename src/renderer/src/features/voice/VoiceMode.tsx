@@ -30,7 +30,7 @@ export function VoiceModeButton(): ReactNode {
       title={on ? `Voice Mode is on — ${LABEL[status]}` : 'Voice Mode: talk with the assistant'}
       className={cn(
         'motion-press relative z-10 mb-2 flex size-9 shrink-0 items-center justify-center rounded-xl lg:size-10',
-        on ? 'bg-accent text-accent-fg shadow-[0_0_0_4px_rgba(194,24,91,0.25)]' : open ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-white/55 hover:text-fg'
+        on ? 'bg-accent text-accent-fg shadow-[0_0_0_4px_rgba(255,45,171,0.28)]' : open ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-white/55 hover:text-fg'
       )}
     >
       <AudioLines className={cn('size-[18px]', on && status === 'speaking' && 'animate-pulse')} />
@@ -193,8 +193,8 @@ function Orb({ status, muted, level }: { status: VoiceModeStatus; muted: boolean
         />
         <span
           className={cn(
-            'relative flex size-20 items-center justify-center rounded-full text-[#fff] shadow-[0_6px_24px_rgba(120,27,54,0.45)]',
-            status === 'off' || status === 'error' || muted ? 'bg-[#5b5560]' : 'bg-[linear-gradient(145deg,#c2185b,#781b36)]'
+            'relative flex size-20 items-center justify-center rounded-full text-[#fff] shadow-[0_6px_24px_rgba(255,45,171,0.35)]',
+            status === 'off' || status === 'error' || muted ? 'bg-[#5b5560]' : 'bg-[linear-gradient(145deg,#ff5cbe,#ff2dab)]'
           )}
         >
           {muted ? <MicOff className="size-8" /> : status === 'speaking' ? <AudioLines className="size-8" /> : <Mic className="size-8" />}

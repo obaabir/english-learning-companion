@@ -184,7 +184,7 @@ function Bubble({ role, children }: { role: 'user' | 'model'; children: ReactNod
         className={cn(
           'anim-fade-in max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm',
           role === 'user'
-            ? 'rounded-br-md border border-rose/25 bg-accent-soft text-fg shadow-[0_2px_8px_rgba(120,27,54,0.06)]'
+            ? 'rounded-br-md border border-rose/25 bg-accent-soft text-fg shadow-[0_2px_8px_rgba(255,45,171,0.06)]'
             : 'glass-inset rounded-bl-md bg-white/75'
         )}
       >

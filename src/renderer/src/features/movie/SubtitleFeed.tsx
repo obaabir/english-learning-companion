@@ -228,7 +228,7 @@ export const LineRow = memo(function LineRow({
         className={cn(
           'motion-hover mt-0.5 flex size-4.5 shrink-0 items-center justify-center rounded-full border',
           selected
-            ? 'border-accent bg-accent text-accent-fg shadow-[0_2px_6px_rgba(120,27,54,0.35)]'
+            ? 'border-accent bg-accent text-accent-fg shadow-[0_2px_6px_rgba(255,45,171,0.3)]'
             : 'border-line bg-white/50 text-transparent group-hover:border-rose/60'
         )}
       >
