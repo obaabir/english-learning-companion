@@ -10,6 +10,15 @@ import { completeSegments, validateSegments, type RawSegment } from './transcrip
 /** The one place to change the model. Same alias as the rest of the app: always the current Flash model (free tier, accepts audio). */
 export const SPEAKING_COACH_MODEL = 'gemini-flash-latest'
 
+/**
+ * When a model's free limit is used up (429), the transcript goes to the next free model at once
+ * (each model has its own free limit) instead of waiting a minute. Only when all of them are limited
+ * does it wait and try again.
+ */
+const TRANSCRIBE_MODELS = [SPEAKING_COACH_MODEL, 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
+/** Model → time (ms) until which it is known to be rate-limited or unavailable. */
+const limitedUntil = new Map<string, number>()
+
 const API = 'https://generativelanguage.googleapis.com'
 const KEY_STORAGE = 'elc.speakingCoach.geminiKey'
 /** Above this, audio can't be sent inline (only used if the File API upload isn't available). */
@@ -87,7 +96,7 @@ async function withRetries<T>(fn: () => Promise<T>, signal?: AbortSignal, onWait
     } catch (err) {
       if (!(err instanceof GeminiError) || (err.kind !== 'rate_limit' && err.kind !== 'busy')) throw err
       if (attempt >= MAX_RETRIES) {
-        if (err.kind === 'rate_limit') throw new GeminiError('Free limit reached, try again in a few minutes.', 'rate_limit')
+        if (err.kind === 'rate_limit') throw err
         throw new GeminiError('Gemini is busy right now. Try again in a minute.', 'busy')
       }
       const fallback = err.kind === 'rate_limit' ? [15, 30, 60][attempt] : [5, 15, 30][attempt]
@@ -112,7 +121,11 @@ async function toGeminiError(res: Response): Promise<GeminiError> {
   const details = body.error?.details ?? []
   const retry = details.find((d) => d['@type']?.endsWith('RetryInfo'))?.retryDelay
   const retryAfterSec = retry ? parseFloat(retry) : undefined
-  if (res.status === 429) return new GeminiError('Free limit reached, try again in a few minutes.', 'rate_limit', retryAfterSec)
+  if (res.status === 429) {
+    // Say which limit it was (Gemini names it in the message): none for this model, per day, or per minute.
+    const which = /limit: ?0/.test(msg) ? 'this model has no free quota for your key' : /per ?day|PerDay/i.test(msg) ? 'daily free limit used up' : 'per-minute free limit'
+    return new GeminiError(`Free limit reached (${which}). Try again in a few minutes.`, 'rate_limit', retryAfterSec)
+  }
   if (res.status >= 500) return new GeminiError('Gemini is busy right now. Try again in a minute.', 'busy', retryAfterSec)
   const keyProblem = details.some((d) => d.reason === 'API_KEY_INVALID') || /api key/i.test(msg)
   if (keyProblem || res.status === 401 || res.status === 403) return new GeminiError('Gemini rejected your API key. Check it in Settings.', 'auth')
@@ -215,10 +228,10 @@ function blobToBase64(blob: Blob): Promise<string> {
 type Part = { text: string } | { fileData: { mimeType: string; fileUri: string } } | { inlineData: { mimeType: string; data: string } }
 
 /** One generateContent call that must answer JSON. Returns the raw JSON text. */
-async function generateJsonText(parts: Part[], responseSchema: object, signal?: AbortSignal): Promise<string> {
+async function generateJsonText(parts: Part[], responseSchema: object, signal?: AbortSignal, model = SPEAKING_COACH_MODEL): Promise<string> {
   const key = requireKey()
   const res = await call(
-    `${API}/v1beta/models/${SPEAKING_COACH_MODEL}:generateContent`,
+    `${API}/v1beta/models/${model}:generateContent`,
     {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
@@ -296,10 +309,17 @@ const thinkingRejected = (err: unknown): boolean =>
   err instanceof GeminiError && err.kind === 'bad_request' && /thinking|budget|level|not supported|unsupported|invalid/i.test(err.message)
 
 /** Streams one JSON answer (Server-Sent Events), calling onText with the text so far. Returns the full text. */
-async function streamJsonText(parts: Part[], responseSchema: object, thinkingConfig: object | undefined, signal: AbortSignal | undefined, onText: (soFar: string) => void): Promise<string> {
+async function streamJsonText(
+  parts: Part[],
+  responseSchema: object,
+  thinkingConfig: object | undefined,
+  signal: AbortSignal | undefined,
+  onText: (soFar: string) => void,
+  model = SPEAKING_COACH_MODEL
+): Promise<string> {
   const key = requireKey()
   const res = await call(
-    `${API}/v1beta/models/${SPEAKING_COACH_MODEL}:streamGenerateContent?alt=sse`,
+    `${API}/v1beta/models/${model}:streamGenerateContent?alt=sse`,
     {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
@@ -310,7 +330,7 @@ async function streamJsonText(parts: Part[], responseSchema: object, thinkingCon
     },
     signal
   )
-  if (!res.body) return generateJsonText(parts, responseSchema, signal)
+  if (!res.body) return generateJsonText(parts, responseSchema, signal, model)
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -352,17 +372,44 @@ async function streamJsonText(parts: Part[], responseSchema: object, thinkingCon
 }
 
 /** Streams with thinking off (or the lightest setting this model accepts). */
-async function transcriptText(parts: Part[], signal: AbortSignal | undefined, onText: (soFar: string) => void): Promise<{ text: string; thinking: ThinkingMode }> {
-  for (let i = acceptedThinking.get(SPEAKING_COACH_MODEL) ?? 0; ; i++) {
+async function transcriptTextWith(model: string, parts: Part[], signal: AbortSignal | undefined, onText: (soFar: string) => void): Promise<{ text: string; thinking: ThinkingMode }> {
+  for (let i = acceptedThinking.get(model) ?? 0; ; i++) {
     try {
-      const text = await streamJsonText(parts, SEGMENTS_SCHEMA, THINKING[i].config, signal, onText)
-      acceptedThinking.set(SPEAKING_COACH_MODEL, i)
+      const text = await streamJsonText(parts, SEGMENTS_SCHEMA, THINKING[i].config, signal, onText, model)
+      acceptedThinking.set(model, i)
       return { text, thinking: THINKING[i].mode }
     } catch (err) {
       if (i < THINKING.length - 1 && thinkingRejected(err)) continue
       throw err
     }
   }
+}
+
+/**
+ * The first free model that isn't rate-limited writes the transcript. A model that answers 429 (or
+ * doesn't exist for this key) is skipped at once and the next one is asked. If every model is limited,
+ * the shortest wait Gemini asked for is passed on, so the caller waits once and tries again.
+ */
+async function transcriptText(parts: Part[], signal: AbortSignal | undefined, onText: (soFar: string) => void): Promise<{ text: string; thinking: ThinkingMode; model: string }> {
+  let soonest: number | undefined
+  let lastLimit: GeminiError | null = null
+  const now = Date.now()
+  const ready = TRANSCRIBE_MODELS.filter((m) => (limitedUntil.get(m) ?? 0) <= now)
+  for (const model of ready.length ? ready : TRANSCRIBE_MODELS) {
+    try {
+      const r = await transcriptTextWith(model, parts, signal, onText)
+      return { ...r, model }
+    } catch (err) {
+      if (!(err instanceof GeminiError) || (err.kind !== 'rate_limit' && err.kind !== 'model')) throw err
+      const sec = err.kind === 'model' ? 3600 : (err.retryAfterSec ?? 60)
+      limitedUntil.set(model, Date.now() + sec * 1000)
+      if (err.kind === 'rate_limit') {
+        lastLimit = err
+        soonest = Math.min(soonest ?? Infinity, sec)
+      }
+    }
+  }
+  throw new GeminiError(`Free limit reached on every free Gemini model (${lastLimit?.message.match(/\((.*?)\)/)?.[1] ?? 'rate limit'}). Try again in a few minutes.`, 'rate_limit', lastLimit ? soonest : 60)
 }
 
 /**
