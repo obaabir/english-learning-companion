@@ -4,8 +4,8 @@
  */
 import { create } from 'zustand'
 import { useApp } from '@renderer/stores/app'
-import { extractAudio, ExtractError, PART_SECONDS } from './audioExtract'
-import { getApiKey, isAbortError, SPEAKING_COACH_MODEL, transcribeAudioPart } from './geminiService'
+import { extractAudio, ExtractError, PART_SECONDS, preloadFFmpeg } from './audioExtract'
+import { getApiKey, isAbortError, SPEAKING_COACH_MODEL, transcribeAudioPart, type PartTiming } from './geminiService'
 import { deleteTranscript, getTranscript, listTranscripts, saveTranscript, type TranscriptSummary } from './transcriptDb'
 import { baseName, fileExtension, mergePartLines, segmentsToLines, type TranscriptLine } from './transcriptFormat'
 
@@ -62,13 +62,17 @@ interface SpeakingCoachState {
   createdAt: number | null
   dirty: boolean
   history: TranscriptSummary[]
+  /** The same recording was already transcribed completely: open it, or transcribe again. */
+  reuseOffer: TranscriptSummary | null
+  /** Measured: audio preparation and each part (shown when done; also in the console). */
+  timings: { prepareMs: number | null; parts: (PartTiming & { index: number })[] } | null
 
   setView: (view: 'main' | 'history') => void
   setSettingsOpen: (open: boolean) => void
   chooseFile: (file: File) => void
   attachMedia: (file: File) => void
   setDuration: (sec: number) => void
-  start: (confirmedBig?: boolean) => Promise<void>
+  start: (confirmedBig?: boolean, force?: boolean) => Promise<void>
   dismissBigWarning: () => void
   retryFailed: () => Promise<void>
   cancel: () => void
@@ -102,7 +106,9 @@ const EMPTY_JOB = {
   savedId: null,
   createdAt: null,
   dirty: false,
-  bigFileWarning: false
+  bigFileWarning: false,
+  reuseOffer: null,
+  timings: null
 }
 
 export const useSpeakingCoach = create<SpeakingCoachState>((set, get) => {
@@ -120,44 +126,79 @@ export const useSpeakingCoach = create<SpeakingCoachState>((set, get) => {
     })
   }
 
-  /** Transcribes the parts that aren't done yet, one at a time, stopping at the first failure. */
+  /**
+   * Transcribes the parts that aren't done yet, two at a time (each part's lines go in its own place,
+   * so the order is kept). Lines appear while Gemini is still writing; each part's final, validated
+   * lines then replace them. After a failure no new part is started; the others finish.
+   */
   const transcribeRemaining = async (): Promise<void> => {
     const signal = controller?.signal
     set({ phase: 'transcribing', error: null, progress: null })
     const total = get().parts.length
     const name = baseName(get().source?.fileName ?? 'recording')
-    for (const part of get().parts) {
-      if (part.status === 'done') continue
-      const n = part.index + 1
-      try {
-        const segments = await transcribeAudioPart(part.blob, part.mimeType, `${name} part ${n}`, {
-          signal,
-          onStage: (stage) => {
-            updatePart(part.index, { status: stage, error: undefined })
-            set({ status: `${stage === 'uploading' ? 'Uploading' : 'Transcribing'} part ${n}/${total}…` })
-          },
-          onWait: (w) =>
-            set({
-              status:
-                w.reason === 'rate_limit'
-                  ? `Free limit hit. Retrying part ${n}/${total} in ${w.secondsLeft}s (try ${w.attempt}/${w.maxAttempts})…`
-                  : `Gemini is busy. Retrying part ${n}/${total} in ${w.secondsLeft}s (try ${w.attempt}/${w.maxAttempts})…`
-            })
-        })
-        const added = segmentsToLines(segments, part.offsetSec, part.index, part.durationSec)
-        set({ lines: mergePartLines(get().lines, part.index, added) })
-        updatePart(part.index, { status: 'done' })
-        set({ complete: get().parts.every((p) => p.status === 'done') })
-        // Saved after every finished part, so nothing is lost if the app closes.
-        await get().save(true)
-      } catch (err) {
-        const message = isAbortError(err) ? 'Stopped.' : err instanceof Error ? err.message : String(err)
-        updatePart(part.index, { status: 'failed', error: message })
-        set({ phase: 'failed', error: message, status: '' })
-        return
+    const queue = get().parts.filter((p) => p.status !== 'done')
+    let failure: string | null = null
+    const statusLine = (): void => {
+      const done = get().parts.filter((p) => p.status === 'done').length
+      const n = get().lines.length
+      const where = total > 1 ? ` · part ${Math.min(total, done + 1)} of ${total}` : ''
+      set({ status: n ? `Generating transcript… ${n} line${n === 1 ? '' : 's'} so far${where}` : `Generating transcript… waiting for Gemini's first words${where}` })
+    }
+    const worker = async (): Promise<void> => {
+      for (let part = queue.shift(); part && !failure; part = queue.shift()) {
+        const n = part.index + 1
+        try {
+          const { segments, timing } = await transcribeAudioPart(part.blob, part.mimeType, `${name} part ${n}`, {
+            signal,
+            onStage: (stage) => {
+              updatePart(part.index, { status: stage, error: undefined })
+              if (stage === 'uploading') set({ status: `Uploading part ${n}/${total}…` })
+              else statusLine()
+            },
+            onWait: (w) =>
+              set({
+                status:
+                  w.reason === 'rate_limit'
+                    ? `Free limit hit. Retrying part ${n}/${total} in ${w.secondsLeft}s (try ${w.attempt}/${w.maxAttempts})…`
+                    : `Gemini is busy. Retrying part ${n}/${total} in ${w.secondsLeft}s (try ${w.attempt}/${w.maxAttempts})…`
+              }),
+            // Finished lines while the rest is still being written.
+            onPartial: (partial) => {
+              set({ lines: mergePartLines(get().lines, part.index, segmentsToLines(partial, part.offsetSec, part.index, part.durationSec)) })
+              statusLine()
+            }
+          })
+          const added = segmentsToLines(segments, part.offsetSec, part.index, part.durationSec)
+          set({ lines: mergePartLines(get().lines, part.index, added) })
+          updatePart(part.index, { status: 'done' })
+          const t = get().timings ?? { prepareMs: null, parts: [] }
+          set({ complete: get().parts.every((p) => p.status === 'done'), timings: { ...t, parts: [...t.parts, { ...timing, index: part.index }] } })
+          // Saved after every finished part, so nothing is lost if the app closes.
+          await get().save(true)
+        } catch (err) {
+          const message = isAbortError(err) ? 'Stopped.' : err instanceof Error ? err.message : String(err)
+          updatePart(part.index, { status: 'failed', error: message })
+          failure ??= message
+        }
       }
     }
-    set({ phase: 'done', status: `Done: ${get().lines.length} lines.`, complete: true })
+    await Promise.all([worker(), worker()])
+    // The audio tools are ready again for the next recording (they are freed after each extraction).
+    if (useApp.getState().page === 'speaking') preloadFFmpeg()
+    if (failure) {
+      set({ phase: 'failed', error: failure, status: '' })
+      return
+    }
+    const timings = get().timings
+    const secs = (ms: number | null | undefined): string => (ms === null || ms === undefined ? '—' : `${(ms / 1000).toFixed(1)} s`)
+    const gemini = Math.max(0, ...(timings?.parts ?? []).map((p) => p.totalMs))
+    const first = Math.min(...(timings?.parts ?? []).map((p) => (p.firstTextMs ?? Infinity) + p.sendMs))
+    console.info('[Speaking Coach] timings', timings)
+    set({
+      phase: 'done',
+      status: `Done: ${get().lines.length} lines · audio ${secs(timings?.prepareMs)} · Gemini ${secs(gemini)} (first words after ${secs(Number.isFinite(first) ? first : null)})`,
+      complete: true
+    })
   }
 
   return {
@@ -200,9 +241,17 @@ export const useSpeakingCoach = create<SpeakingCoachState>((set, get) => {
 
     dismissBigWarning: () => set({ bigFileWarning: false }),
 
-    start: async (confirmedBig = false) => {
+    start: async (confirmedBig = false, force = false) => {
       const { file, phase, source } = get()
       if (!file || !source || isBusy(phase)) return
+      // The same recording already has a complete transcript: offer it instead of transcribing again.
+      if (!force) {
+        const saved = (await listTranscripts().catch(() => [])).find((t) => t.complete && t.fileName === file.name && t.fileSize === file.size)
+        if (saved) {
+          set({ reuseOffer: saved })
+          return
+        }
+      }
       if (file.size > BIG_BYTES && !confirmedBig) {
         set({ bigFileWarning: true })
         return
@@ -213,7 +262,8 @@ export const useSpeakingCoach = create<SpeakingCoachState>((set, get) => {
       }
       controller = new AbortController()
       const signal = controller.signal
-      set({ ...EMPTY_JOB, phase: 'extracting', status: 'Preparing…' })
+      set({ ...EMPTY_JOB, phase: 'extracting', status: 'Preparing the recording…' })
+      const prepStart = performance.now()
 
       let parts: PartState[]
       const direct = DIRECT_AUDIO[fileExtension(file.name)]
@@ -238,7 +288,7 @@ export const useSpeakingCoach = create<SpeakingCoachState>((set, get) => {
           return
         }
       }
-      set({ parts, progress: null })
+      set({ parts, progress: null, timings: { prepareMs: performance.now() - prepStart, parts: [] } })
       await transcribeRemaining()
     },
 

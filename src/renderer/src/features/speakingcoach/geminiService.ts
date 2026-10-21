@@ -5,7 +5,7 @@
  * Settings box (kept in localStorage, never in the code). To move to a backend / paid key later, change
  * only this file: keep the exported functions and make them call your server instead.
  */
-import { validateSegments, type RawSegment } from './transcriptFormat'
+import { completeSegments, validateSegments, type RawSegment } from './transcriptFormat'
 
 /** The one place to change the model. Same alias as the rest of the app: always the current Flash model (free tier, accepts audio). */
 export const SPEAKING_COACH_MODEL = 'gemini-flash-latest'
@@ -14,6 +14,12 @@ const API = 'https://generativelanguage.googleapis.com'
 const KEY_STORAGE = 'elc.speakingCoach.geminiKey'
 /** Above this, audio can't be sent inline (only used if the File API upload isn't available). */
 const INLINE_LIMIT = 18 * 1024 * 1024
+/**
+ * Up to this size a part is sent inside the request itself (one request instead of upload → wait →
+ * transcribe → delete). Base64 makes it ~4/3 larger, which stays under Gemini's 20 MB request limit.
+ * Every part this section makes (≤ 10 min of 32 kbps mono MP3 ≈ 2.4 MB) fits.
+ */
+const INLINE_FAST_LIMIT = 14 * 1024 * 1024
 const MAX_RETRIES = 3
 
 // ---------- API key (localStorage) ----------
@@ -33,7 +39,7 @@ export function setApiKey(key: string | null): void {
 
 // ---------- Errors and retries ----------
 
-export type GeminiErrorKind = 'rate_limit' | 'busy' | 'auth' | 'model' | 'invalid_json' | 'network' | 'blocked' | 'other'
+export type GeminiErrorKind = 'rate_limit' | 'busy' | 'auth' | 'model' | 'invalid_json' | 'network' | 'blocked' | 'bad_request' | 'other'
 
 export class GeminiError extends Error {
   constructor(
@@ -111,7 +117,7 @@ async function toGeminiError(res: Response): Promise<GeminiError> {
   const keyProblem = details.some((d) => d.reason === 'API_KEY_INVALID') || /api key/i.test(msg)
   if (keyProblem || res.status === 401 || res.status === 403) return new GeminiError('Gemini rejected your API key. Check it in Settings.', 'auth')
   if (res.status === 404) return new GeminiError(`Gemini model "${SPEAKING_COACH_MODEL}" was not found. Change SPEAKING_COACH_MODEL in geminiService.ts.`, 'model')
-  return new GeminiError(`Gemini error (${res.status}): ${msg}`, 'other')
+  return new GeminiError(`Gemini error (${res.status}): ${msg}`, res.status === 400 ? 'bad_request' : 'other')
 }
 
 async function call(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
@@ -261,24 +267,127 @@ export interface TranscribeOptions {
   signal?: AbortSignal
   onStage?: (stage: 'uploading' | 'transcribing') => void
   onWait?: (w: WaitInfo) => void
+  /** Lines already finished while Gemini is still writing (times relative to the part). */
+  onPartial?: (segments: RawSegment[]) => void
+}
+
+/** Where the time of one part went (milliseconds, measured). */
+export interface PartTiming {
+  /** inline = sent inside the request; upload = File API upload + wait + transcribe. */
+  route: 'inline' | 'upload'
+  thinking: ThinkingMode
+  /** Preparing the audio for the request (base64) or uploading it and waiting until it is ready. */
+  sendMs: number
+  /** From asking for the transcript until the first words arrived. */
+  firstTextMs: number | null
+  /** The whole part, start to end. */
+  totalMs: number
+}
+
+/**
+ * Thinking is not needed to write down speech and makes long answers much slower, so it is switched
+ * off first; if the model refuses that, "minimal", and only then the model's default. The accepted
+ * setting is remembered for the session.
+ */
+export type ThinkingMode = 'off' | 'minimal' | 'default'
+const THINKING: { mode: ThinkingMode; config?: object }[] = [{ mode: 'off', config: { thinkingBudget: 0 } }, { mode: 'minimal', config: { thinkingLevel: 'MINIMAL' } }, { mode: 'default' }]
+const acceptedThinking = new Map<string, number>()
+const thinkingRejected = (err: unknown): boolean =>
+  err instanceof GeminiError && err.kind === 'bad_request' && /thinking|budget|level|not supported|unsupported|invalid/i.test(err.message)
+
+/** Streams one JSON answer (Server-Sent Events), calling onText with the text so far. Returns the full text. */
+async function streamJsonText(parts: Part[], responseSchema: object, thinkingConfig: object | undefined, signal: AbortSignal | undefined, onText: (soFar: string) => void): Promise<string> {
+  const key = requireKey()
+  const res = await call(
+    `${API}/v1beta/models/${SPEAKING_COACH_MODEL}:streamGenerateContent?alt=sse`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema, ...(thinkingConfig ? { thinkingConfig } : {}) }
+      })
+    },
+    signal
+  )
+  if (!res.body) return generateJsonText(parts, responseSchema, signal)
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let text = ''
+  for (;;) {
+    let chunk: ReadableStreamReadResult<Uint8Array>
+    try {
+      chunk = await reader.read()
+    } catch (err) {
+      if (isAbortError(err)) throw err
+      throw new GeminiError("Couldn't reach Gemini. Check your internet connection.", 'network')
+    }
+    if (chunk.done) break
+    buffer += decoder.decode(chunk.value, { stream: true })
+    let nl: number
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl).trim()
+      buffer = buffer.slice(nl + 1)
+      if (!line.startsWith('data:')) continue
+      let json: { promptFeedback?: { blockReason?: string }; candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[] }
+      try {
+        json = JSON.parse(line.slice(5))
+      } catch {
+        continue
+      }
+      if (json.promptFeedback?.blockReason) throw new GeminiError(`Gemini refused this audio (${json.promptFeedback.blockReason}).`, 'blocked')
+      const add = (json.candidates?.[0]?.content?.parts ?? [])
+        .filter((p) => typeof p.text === 'string' && !p.thought)
+        .map((p) => p.text)
+        .join('')
+      if (add) {
+        text += add
+        onText(text)
+      }
+    }
+  }
+  if (!text.trim()) throw new GeminiError('Gemini returned an empty answer.', 'invalid_json')
+  return text
+}
+
+/** Streams with thinking off (or the lightest setting this model accepts). */
+async function transcriptText(parts: Part[], signal: AbortSignal | undefined, onText: (soFar: string) => void): Promise<{ text: string; thinking: ThinkingMode }> {
+  for (let i = acceptedThinking.get(SPEAKING_COACH_MODEL) ?? 0; ; i++) {
+    try {
+      const text = await streamJsonText(parts, SEGMENTS_SCHEMA, THINKING[i].config, signal, onText)
+      acceptedThinking.set(SPEAKING_COACH_MODEL, i)
+      return { text, thinking: THINKING[i].mode }
+    } catch (err) {
+      if (i < THINKING.length - 1 && thinkingRejected(err)) continue
+      throw err
+    }
+  }
 }
 
 /**
  * Transcribes one audio part (≤ ~10 min) word for word. Times in the result are relative to the part.
- * Upload → wait for ACTIVE → transcribe; JSON is validated and asked for once more if broken.
+ * Small parts go inside the request; bigger ones are uploaded (File API) first. The answer is streamed,
+ * so finished lines can be shown while Gemini is still writing; the full JSON is then validated as
+ * before (asked for once more if broken).
  */
-export async function transcribeAudioPart(audio: Blob, mimeType: string, displayName: string, opts: TranscribeOptions = {}): Promise<RawSegment[]> {
-  const { signal, onStage, onWait } = opts
-  onStage?.('uploading')
+export async function transcribeAudioPart(audio: Blob, mimeType: string, displayName: string, opts: TranscribeOptions = {}): Promise<{ segments: RawSegment[]; timing: PartTiming }> {
+  const { signal, onStage, onWait, onPartial } = opts
+  const t0 = performance.now()
   let uploaded: UploadedFile | null = null
   let audioPart: Part
-  try {
-    uploaded = await withRetries(() => uploadFile(audio, mimeType, displayName, signal), signal, onWait)
-  } catch (err) {
-    // Only if the upload itself can't be reached from this window: small parts can still be sent inline.
-    if (!(err instanceof GeminiError && err.kind === 'network') || audio.size > INLINE_LIMIT) throw err
-  }
-  try {
+  let route: PartTiming['route'] = 'inline'
+  if (audio.size <= INLINE_FAST_LIMIT) {
+    audioPart = { inlineData: { mimeType, data: await blobToBase64(audio) } }
+  } else {
+    route = 'upload'
+    onStage?.('uploading')
+    try {
+      uploaded = await withRetries(() => uploadFile(audio, mimeType, displayName, signal), signal, onWait)
+    } catch (err) {
+      // Only if the upload itself can't be reached from this window: small parts can still be sent inline.
+      if (!(err instanceof GeminiError && err.kind === 'network') || audio.size > INLINE_LIMIT) throw err
+    }
     if (uploaded) {
       await waitUntilActive(uploaded, signal)
       audioPart = { fileData: { mimeType: uploaded.mimeType || mimeType, fileUri: uploaded.uri } }
@@ -286,21 +395,38 @@ export async function transcribeAudioPart(audio: Blob, mimeType: string, display
       if (audio.size > INLINE_LIMIT) throw new GeminiError('Could not upload the audio to Gemini.', 'network')
       audioPart = { inlineData: { mimeType, data: await blobToBase64(audio) } }
     }
-
+  }
+  const sendMs = performance.now() - t0
+  try {
     onStage?.('transcribing')
     for (let attempt = 0; ; attempt++) {
-      const text = await withRetries(() => generateJsonText([audioPart, { text: TRANSCRIBE_PROMPT }], SEGMENTS_SCHEMA, signal), signal, onWait).catch((err) => {
-        if (err instanceof GeminiError && err.kind === 'invalid_json') return ''
+      const asked = performance.now()
+      let firstTextMs: number | null = null
+      let shown = 0
+      const result = await withRetries(
+        () =>
+          transcriptText([audioPart, { text: TRANSCRIBE_PROMPT }], signal, (soFar) => {
+            firstTextMs ??= performance.now() - asked
+            const partial = completeSegments(soFar)
+            if (partial.length > shown) {
+              shown = partial.length
+              onPartial?.(partial)
+            }
+          }),
+        signal,
+        onWait
+      ).catch((err) => {
+        if (err instanceof GeminiError && err.kind === 'invalid_json') return null
         throw err
       })
       let parsed: unknown = null
       try {
-        parsed = JSON.parse(text)
+        parsed = result ? JSON.parse(result.text) : null
       } catch {
         // broken JSON → retry below
       }
       const segments = validateSegments(parsed)
-      if (segments) return segments
+      if (segments && result) return { segments, timing: { route, thinking: result.thinking, sendMs, firstTextMs, totalMs: performance.now() - t0 } }
       if (attempt >= 1) throw new GeminiError('Gemini returned an unreadable transcript twice. Retry this part.', 'invalid_json')
     }
   } finally {

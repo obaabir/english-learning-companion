@@ -109,7 +109,8 @@ function JobCard(): ReactNode {
   const complete = useSpeakingCoach((s) => s.complete)
   const lineCount = useSpeakingCoach((s) => s.lines.length)
   const bigFileWarning = useSpeakingCoach((s) => s.bigFileWarning)
-  const { start, cancel, retryFailed, dismissBigWarning } = useSpeakingCoach.getState()
+  const reuseOffer = useSpeakingCoach((s) => s.reuseOffer)
+  const { start, cancel, retryFailed, dismissBigWarning, openSaved } = useSpeakingCoach.getState()
   const busy = phase === 'extracting' || phase === 'transcribing'
   const canRetryPart = phase === 'failed' && parts.some((p) => p.status !== 'done')
 
@@ -132,7 +133,27 @@ function JobCard(): ReactNode {
         </div>
       )}
 
-      {phase === 'idle' && file && !bigFileWarning && (
+      {/* The same recording was already transcribed: open it at once instead of waiting again. */}
+      {reuseOffer && !busy && (
+        <div className="rounded-lg bg-info-soft p-3 text-sm" role="status">
+          <p className="flex items-center gap-1.5 font-medium text-info">
+            <CheckCircle2 className="size-4 shrink-0" /> Already transcribed
+          </p>
+          <p className="mt-1 text-muted">
+            This recording was transcribed on {new Date(reuseOffer.updatedAt).toLocaleString()} ({reuseOffer.lineCount} lines). Open it now, or make a new transcript.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="primary" onClick={() => void openSaved(reuseOffer.id)}>
+              Open saved transcript
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void start(true, true)}>
+              Transcribe again
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {phase === 'idle' && file && !bigFileWarning && !reuseOffer && (
         <>
           <Button variant="primary" icon={<Sparkles className="size-4" />} onClick={() => void start()}>
             Make transcript

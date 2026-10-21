@@ -127,3 +127,18 @@ export function fileExtension(fileName: string): string {
   const i = fileName.lastIndexOf('.')
   return i >= 0 ? fileName.slice(i + 1).toLowerCase() : ''
 }
+
+/** Finished segment objects inside a JSON answer that is still being written. */
+export function completeSegments(partialJson: string): RawSegment[] {
+  const out: RawSegment[] = []
+  const re = /\{\s*"start"\s*:\s*"([^"]*)"\s*,\s*"end"\s*:\s*"([^"]*)"\s*,\s*"text"\s*:\s*("(?:[^"\\]|\\.)*")\s*\}/g
+  for (let m = re.exec(partialJson); m; m = re.exec(partialJson)) {
+    try {
+      const text = (JSON.parse(m[3]) as string).trim()
+      if (text) out.push({ start: m[1], end: m[2], text })
+    } catch {
+      // not finished yet
+    }
+  }
+  return out
+}
