@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { findInPassage, parseBookRequest, spokenTarget, textToPages, textToParagraphs, type BookPage, type PassageMatch, type PassageRef, type ReadingSession } from '@shared/reading'
+import { findInPassage, parseBookRequest, replyTarget, spokenTarget, textToPages, textToParagraphs, type BookPage, type PassageMatch, type PassageRef, type ReadingSession } from '@shared/reading'
 import { errorMessage, invoke } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { useArticles } from './articleStore'
@@ -92,6 +92,8 @@ interface ReadingState {
   ask: (query: string, ref?: PassageRef, opts?: { explain?: boolean }) => Promise<BookAnswer>
   /** What the learner said to JARVIS: if it names a word / sentence of the passage, it goes to the panel. */
   hear: (utterance: string) => Promise<boolean>
+  /** JARVIS's reply, when the learner's words couldn't be matched: the word it quotes goes to the panel. */
+  hearReply: (reply: string) => Promise<boolean>
 }
 
 const toBase64 = (file: File): Promise<string> =>
@@ -276,21 +278,29 @@ export const useReading = create<ReadingState>((set, get) => ({
     await get().show(distinct[0], opts.explain ?? true)
     return { status: 'shown', match: distinct[0], target: distinct[0].matchText }
   },
-  hear: async (utterance) => {
-    const s = get().active
-    if (!s || get().mode !== 'read' || useApp.getState().page !== 'articles' || useArticles.getState().view !== 'companion') return false
-    const r = spokenTarget(s.pages, utterance)
-    if (!r?.matches.length) return false
-    const distinct = r.matches.filter((m, i, all) => all.findIndex((x) => x.page === m.page && x.paragraph === m.paragraph && x.sentence === m.sentence) === i)
-    if (distinct.length > 1) {
-      set({ choices: distinct, notice: null })
-      return true
-    }
-    // Already showing this one (JARVIS's own tool may have found it too): nothing to do.
-    const m = distinct[0]
-    const sel = useArticles.getState().selection
-    if (sel && sel.source === 'book' && sel.sentence === m.sentenceText && (sel.text === m.matchText || sel.text === m.sentenceText)) return true
-    await get().show(m, false)
+  hear: (utterance) => holdFound(get, set, (pages) => spokenTarget(pages, utterance)),
+  hearReply: (reply) => holdFound(get, set, (pages) => replyTarget(pages, reply))
+}))
+
+/** Shows a voice-found place in the panel (held: Explain explains), or offers the choices. */
+async function holdFound(
+  get: () => ReadingState,
+  set: (p: Partial<ReadingState>) => void,
+  search: (pages: BookPage[]) => ReturnType<typeof spokenTarget>
+): Promise<boolean> {
+  const s = get().active
+  if (!s || get().mode !== 'read' || useApp.getState().page !== 'articles' || useArticles.getState().view !== 'companion') return false
+  const r = search(s.pages)
+  if (!r?.matches.length) return false
+  const distinct = r.matches.filter((m, i, all) => all.findIndex((x) => x.page === m.page && x.paragraph === m.paragraph && x.sentence === m.sentence) === i)
+  if (distinct.length > 1) {
+    set({ choices: distinct, notice: null })
     return true
   }
-}))
+  // Already showing this one (JARVIS's own tool may have found it too): nothing to do.
+  const m = distinct[0]
+  const sel = useArticles.getState().selection
+  if (sel && sel.source === 'book' && sel.sentence === m.sentenceText && (sel.text === m.matchText || sel.text === m.sentenceText)) return true
+  await get().show(m, false)
+  return true
+}

@@ -347,6 +347,62 @@ const SPOKEN_STOP = new Set(
   )
 )
 
+/** Question words in Bangla and Hindi (the learner may ask "definite মানে কী?" or "इसका मतलब क्या है?"). */
+const ASK_OTHER = /মানে|অর্থ|বুঝিয়ে|বোঝাও|ব্যাখ্যা|শব্দ|বাক্য|কী\b|কি\b|मतलब|माने|अर्थ|समझा|क्या|शब्द/
+const ASK_MARK = /(?:শব্দটার?|শব্দের|এর|এটার)?\s*(?:মানে|অর্থ|বুঝিয়ে|বোঝাও|ব্যাখ্যা)|(?:का|के|की)?\s*(?:मतलब|माने|अर्थ)/g
+const ENGLISH_RUN = /[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){0,3}/g
+
+/** English word groups (up to 4 words) directly before a Bangla / Hindi question word, nearest first. */
+function wordsAtQuestion(utterance: string): string[] {
+  const out: string[] = []
+  for (const m of utterance.matchAll(ASK_MARK)) {
+    const before = utterance.slice(0, m.index).trimEnd()
+    const runs = [...before.matchAll(ENGLISH_RUN)]
+    const last = runs[runs.length - 1]
+    // Only when the English words end right where the question word starts.
+    if (last && last.index! + last[0].length >= before.length - 1) out.push(last[0])
+  }
+  return out
+}
+
+/** The longest ending of `group` ("spill the beans" → "the beans" → "beans") found exactly in the passage. */
+function longestFound(pages: BookPage[], group: string, ref: PassageRef): PassageSearch | null {
+  const w = words(group)
+  for (let i = 0; i < w.length; i++) {
+    const part = w.slice(i)
+    if (part.every((x) => SPOKEN_STOP.has(x))) continue
+    const r = findInPassage(pages, part.join(' '), ref)
+    const exact = r.matches.filter((m) => m.exact)
+    if (exact.length) return { matches: exact, note: null }
+  }
+  return null
+}
+
+/**
+ * JARVIS's reply usually quotes the word it explains ("Definite" মানে …). When the learner's words
+ * could not be matched (e.g. the word was transcribed in Bangla script), the first quoted words of the
+ * reply that are in the passage are used.
+ */
+export function replyTarget(pages: BookPage[], reply: string): PassageSearch | null {
+  for (const m of reply.matchAll(/["“”']([A-Za-z][^"“”']{0,60}?)["“”']/g)) {
+    if (words(m[1]).length > 5) continue
+    const r = findInPassage(pages, m[1])
+    const exact = r.matches.filter((x) => x.exact)
+    if (exact.length) return { matches: exact, note: null }
+  }
+  return null
+}
+
+/** JARVIS's reply to the newest thing the learner said (so far). */
+export function replyText(transcript: { role: 'user' | 'model'; text: string }[]): string {
+  const i = transcript.map((t) => t.role).lastIndexOf('user')
+  return transcript
+    .slice(i + 1)
+    .filter((t) => t.role === 'model')
+    .map((t) => t.text)
+    .join(' ')
+}
+
 /**
  * What the learner said to JARVIS while reading (the speech transcript), matched against the passage
  * by the app itself — so the word reaches the panel even when the voice model doesn't call its tool.
@@ -354,14 +410,29 @@ const SPOKEN_STOP = new Set(
  * is ignored. When the whole request isn't found, the longest part of it that is in the passage
  * (exactly, never approximately) is used. Null = nothing to show.
  */
-export function spokenTarget(pages: BookPage[], utterance: string): PassageSearch | null {
+function spokenTargetRaw(pages: BookPage[], utterance: string): PassageSearch | null {
   const said = words(utterance)
   if (!said.length) return null
-  const asking = /\b(explain|mean|meaning|define|definition|word|phrase|idiom|sentence|paragraph|page)\b|\bwhat(?:'s| is)\b/i.test(utterance) || said.length <= 3
+  const asking = /\b(explain|mean|meaning|define|definition|word|phrase|idiom|sentence|paragraph|page)\b|\bwhat(?:'s| is)\b/i.test(utterance) || ASK_OTHER.test(utterance) || said.length <= 3
   if (!asking) return null
   const { query, ref } = parseBookRequest(utterance)
+  // "definite মানে কী?" / "resembled का मतलब": the English words right before (or after) the question word.
+  for (const near of wordsAtQuestion(utterance)) {
+    const r = longestFound(pages, near, ref)
+    if (r) return r
+  }
   const whole = findInPassage(pages, query, ref)
-  if (whole.matches.length) return whole
+  // A quoted-sentence match is only trusted for a long request; a short one may just share words.
+  if (whole.matches.length && (whole.matches.some((m) => m.exact) || words(query).length >= 6)) return whole
+  // A word said several times ("definite … definite … definite?") is most likely the one asked about.
+  const counts = new Map<string, number>()
+  for (const x of said) if (!SPOKEN_STOP.has(x) && x.length >= 3) counts.set(x, (counts.get(x) ?? 0) + 1)
+  const repeated = [...counts].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])
+  for (const [x] of repeated) {
+    const r = findInPassage(pages, x, ref)
+    const exact = r.matches.filter((m) => m.exact)
+    if (exact.length) return { matches: exact, note: null }
+  }
   const w = words(query)
   for (let len = Math.min(w.length - 1, 8); len >= 1; len--) {
     for (let i = 0; i + len <= w.length; i++) {
@@ -390,4 +461,24 @@ export function readyUtterance(transcript: { role: 'user' | 'model'; text: strin
     return { key: `${n}|${t.text.trim()}`, text: t.text.trim() }
   }
   return null
+}
+
+/**
+ * Several places matched: when the learner also said (part of) the sentence, the place whose sentence
+ * shares clearly more of their words is the one meant ("…definite… You choose a definite goal").
+ */
+function preferContext(r: PassageSearch, utterance: string): PassageSearch {
+  if (r.matches.length < 2) return r
+  const said = words(utterance).filter((x) => !SPOKEN_STOP.has(x))
+  const score = (m: PassageMatch): number => {
+    const s = words(m.sentenceText)
+    return said.filter((x) => s.some((y) => close(x, y))).length
+  }
+  const ranked = r.matches.map((m) => ({ m, n: score(m) })).sort((a, b) => b.n - a.n)
+  return ranked[0].n > ranked[1].n ? { matches: [ranked[0].m], note: null } : r
+}
+
+export function spokenTarget(pages: BookPage[], utterance: string): PassageSearch | null {
+  const r = spokenTargetRaw(pages, utterance)
+  return r ? preferContext(r, utterance) : null
 }

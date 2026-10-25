@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, Camera, ClipboardType, Loader2, Mic, Pencil, Plus, Search, Square, Trash2, X } from 'lucide-react'
-import { findInPassage, readyUtterance, UNCLEAR } from '@shared/reading'
+import { findInPassage, readyUtterance, replyText, UNCLEAR } from '@shared/reading'
 import { invoke } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useApp } from '@renderer/stores/app'
@@ -339,11 +339,34 @@ function ReadView(): ReactNode {
   // voice model answers without looking it up. Each finished sentence you say is checked once.
   useEffect(() => {
     let handled = readyUtterance(useVoiceMode.getState().transcript)?.key ?? ''
+    // When what you said can't be matched (e.g. the word was written in Bangla letters), JARVIS's reply
+    // is checked for the word it quotes ("Definite" মানে …), each time a new quote appears in it.
+    let waitingReply = false
+    let quotesTried = 0
     return useVoiceMode.subscribe((st) => {
       const u = readyUtterance(st.transcript)
-      if (!u || u.key === handled) return
-      handled = u.key
-      void useReading.getState().hear(u.text)
+      if (u && u.key !== handled) {
+        handled = u.key
+        waitingReply = false
+        quotesTried = 0
+        void useReading
+          .getState()
+          .hear(u.text)
+          .then((found) => {
+            if (handled === u.key) waitingReply = !found
+          })
+      }
+      if (!waitingReply) return
+      const reply = replyText(st.transcript)
+      const quotes = (reply.match(/["“”']/g) ?? []).length
+      if (quotes < 2 || quotes === quotesTried) return
+      quotesTried = quotes
+      void useReading
+        .getState()
+        .hearReply(reply)
+        .then((found) => {
+          if (found) waitingReply = false
+        })
     })
   }, [])
 
