@@ -352,7 +352,7 @@ export async function runLiveTool(name: string, args: Record<string, string>): P
 /** Reading Companion: find what the user named in the prepared book pages and show it in the panel. */
 async function explainFromBook(args: Record<string, string>): Promise<Record<string, unknown>> {
   const num = (v?: string): number | null => (v && Number.isFinite(Number(v)) ? Number(v) : null)
-  const r = await useReading.getState().ask(args.query ?? '', { page: args.page || null, paragraph: num(args.paragraph), sentence: num(args.sentence) })
+  const r = await useReading.getState().ask(args.query ?? '', { page: args.page || null, paragraph: num(args.paragraph), sentence: num(args.sentence) }, { explain: false })
   const book = useReading.getState().active
   if (r.status === 'no-session')
     return { ok: false, error: 'No book passage is open. Ask the user to open Articles → Reading Companion and choose (or prepare) the pages they are reading.' }
@@ -374,7 +374,7 @@ async function explainFromBook(args: Record<string, string>): Promise<Record<str
     sentence_text: m.sentenceText,
     paragraph_text: m.paragraphText.slice(0, 900),
     book: book ? [book.bookTitle, book.author].filter(Boolean).join(' by ') || book.name : null,
-    shown_in_panel: true
+    shown_in_panel: 'The word is now in the Explanation panel (selected). The user can press Explain there for the written explanation, or ask you to save it.'
   }
 }
 

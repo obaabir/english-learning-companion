@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, Camera, ClipboardType, Loader2, Mic, Pencil, Plus, Search, Square, Trash2, X } from 'lucide-react'
-import { findInPassage, UNCLEAR } from '@shared/reading'
+import { findInPassage, readyUtterance, UNCLEAR } from '@shared/reading'
 import { invoke } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useApp } from '@renderer/stores/app'
@@ -334,6 +334,18 @@ function ReadView(): ReactNode {
   const toastError = useApp((st) => st.toastError)
   const [q, setQ] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+
+  // What you say to JARVIS is also matched here, by the app: the word goes to the panel even if the
+  // voice model answers without looking it up. Each finished sentence you say is checked once.
+  useEffect(() => {
+    let handled = readyUtterance(useVoiceMode.getState().transcript)?.key ?? ''
+    return useVoiceMode.subscribe((st) => {
+      const u = readyUtterance(st.transcript)
+      if (!u || u.key === handled) return
+      handled = u.key
+      void useReading.getState().hear(u.text)
+    })
+  }, [])
 
   // Voice / typed requests bring the current paragraph into view; the learner's own scrolling is kept.
   useEffect(() => {

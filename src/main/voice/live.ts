@@ -224,24 +224,40 @@ export class LiveVoice {
     }
   }
 
-  /** The server is about to close this connection (time limit): continue on a new one. */
+  /**
+   * The server is about to close this connection (time limit, about every 10 minutes) or it dropped:
+   * continue on a new one. A brief network problem is retried a few times (2 s, 5 s, 10 s) so a long
+   * session (an hour of reading) isn't ended by one failed attempt. Quota / key problems stop at once.
+   */
   private async reconnect(): Promise<void> {
     if (!this.active || this.reconnecting || !this.model) return
     this.reconnecting = true
     this.deps.emit({ type: 'state', state: 'reconnecting', model: this.model })
     const old = this.session
+    const waits = [0, 2000, 5000, 10_000]
+    let last: LiveError | null = null
     try {
-      this.session = await this.connect(this.model, this.handle)
-      try {
-        old?.close()
-      } catch {
-        // ignore
+      for (const wait of waits) {
+        if (wait) await new Promise((res) => setTimeout(res, wait))
+        if (!this.active) return
+        try {
+          this.session = await this.connect(this.model, this.handle)
+          try {
+            old?.close()
+          } catch {
+            // ignore
+          }
+          this.deps.emit({ type: 'state', state: 'open', model: this.model })
+          return
+        } catch (err) {
+          last = err instanceof LiveError ? err : classifyLiveError(String(err))
+          if (last.reason !== 'network' && last.reason !== 'other') break
+          // A resume handle can expire: the next try starts a fresh connection (same session, shorter memory).
+          if (this.handle && wait >= 5000) this.handle = null
+        }
       }
-      this.deps.emit({ type: 'state', state: 'open', model: this.model })
-    } catch (err) {
-      const e = err instanceof LiveError ? err : classifyLiveError(String(err))
       this.active = false
-      this.deps.emit({ type: 'state', state: 'closed', reason: e.reason, message: e.message })
+      this.deps.emit({ type: 'state', state: 'closed', reason: last?.reason ?? 'network', message: last?.message })
     } finally {
       this.reconnecting = false
     }
@@ -249,8 +265,8 @@ export class LiveVoice {
 
   private async onClosed(reason: string): Promise<void> {
     if (!this.active || this.reconnecting) return
-    // Closed by the server: resume the same conversation once if possible.
-    if (this.handle && !/quota|RESOURCE_EXHAUSTED|billing|PERMISSION/i.test(reason)) return this.reconnect()
+    // Closed by the server or the network: continue (resuming the conversation when a handle is known).
+    if (!/quota|RESOURCE_EXHAUSTED|billing|PERMISSION|API key/i.test(reason)) return this.reconnect()
     const e = classifyLiveError(reason)
     this.active = false
     this.session = null

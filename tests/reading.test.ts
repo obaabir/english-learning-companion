@@ -106,3 +106,15 @@ describe('Reading Companion: JARVIS Voice Mode tool', () => {
     expect(validateToolCall('open_section', { section: 'reading_companion' })).toMatchObject({ ok: true })
   })
 })
+
+describe('Reading Companion: what was said to JARVIS reaches the panel', () => {
+  it('a spoken request about a word is matched by the app itself; chat is ignored', async () => {
+    const { spokenTarget } = await import('../src/shared/reading')
+    expect(spokenTarget(pages, 'Okay, what does reluctantly mean?')?.matches[0].matchText).toBe('reluctantly')
+    expect(spokenTarget(pages, 'inevitable')?.matches[0].pageLabel).toBe('13')
+    expect(spokenTarget(pages, 'Jarvis can you explain the word inevitable for me please')?.matches[0].matchText).toBe('inevitable')
+    expect(spokenTarget(pages, 'page 12, explain stacked')?.matches[0].matchText).toBe('stacked')
+    expect(spokenTarget(pages, 'Okay, save it from my notebook.')).toBeNull()
+    expect(spokenTarget(pages, 'the second one')).toBeNull()
+  })
+})

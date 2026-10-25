@@ -129,6 +129,11 @@ function Uncertain(): ReactNode {
   )
 }
 
+/** The source spells it differently (a printing or scanning error): the card uses the correct spelling. */
+function WrittenAs({ text }: { text: string }): ReactNode {
+  return <p className="ex-muted mt-0.5 text-xs">Written “{text}” in the text (probably a printing or scanning error)</p>
+}
+
 function VocabCard({ v }: { v: ExplainVocab }): ReactNode {
   return (
     <article className="ex-card" data-vocab={v.term}>
@@ -137,6 +142,7 @@ function VocabCard({ v }: { v: ExplainVocab }): ReactNode {
         {v.pos && <span className="ex-muted text-xs italic">{v.pos}</span>}
         {!v.certain && <Uncertain />}
       </p>
+      {v.writtenAs && <WrittenAs text={v.writtenAs} />}
       <dl className="ex-fields">
         {v.meaningBn && (
           <>
@@ -173,6 +179,7 @@ function ExpressionCard({ e }: { e: ExplainExpression }): ReactNode {
         {!e.certain && <Uncertain />}
       </p>
       {showBase && <p className="ex-muted mt-0.5 text-xs">Dictionary form: {e.baseForm}</p>}
+      {e.writtenAs && <WrittenAs text={e.writtenAs} />}
       <dl className="ex-fields">
         {e.meaningEn && (
           <>

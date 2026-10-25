@@ -163,7 +163,7 @@ function editDistance(a: string, b: string): number {
 }
 
 /** A word heard by speech recognition may be slightly off ("reluctanly"): close enough for longer words only. */
-const close = (heard: string, written: string): boolean =>
+export const close = (heard: string, written: string): boolean =>
   heard === written || (heard.length >= 4 && written.length >= 4 && editDistance(heard, written) <= (Math.max(heard.length, written.length) >= 8 ? 2 : 1))
 
 export interface PassageRef {
@@ -331,11 +331,63 @@ export function parseBookRequest(text: string): { query: string; ref: PassageRef
     .replace(/\s+/g, ' ')
     .trim()
   // Only the command words around the target go ("on the other hand" keeps its "on").
-  const LEAD = /^(?:please|can you|could you|tell me|explain|what does|what is|what's|whats|the meaning of|meaning of|(?:the\s+)?(?:word|phrase|expression|idiom))\s+/i
+  const LEAD = /^(?:okay|ok|so|um|uh|hey|now|and|please|can you|could you|tell me|explain|what does|what is|what's|whats|the meaning of|meaning of|(?:the\s+)?(?:word|phrase|expression|idiom))\s+/i
   const TRAIL = /\s+(?:mean|means|please|in this passage|in the passage|on this page|in this book|here)$/i
   for (let prev = ''; prev !== t; ) {
     prev = t
     t = t.replace(LEAD, '').replace(TRAIL, '').trim()
   }
   return { query: /^(?:the|a|an|this|that|it)$/i.test(t) ? '' : t, ref }
+}
+
+/** Words that are never taken as the target on their own when a spoken sentence is searched piece by piece. */
+const SPOKEN_STOP = new Set(
+  'a an the and or but so to of in on at for with from by it its is are was were be been am i me my you your he she they we us our this that these those what which who how why when where yes no okay ok one first second third word phrase sentence page paragraph explain mean meaning means tell please can could would will do does did not save it'.split(
+    ' '
+  )
+)
+
+/**
+ * What the learner said to JARVIS while reading (the speech transcript), matched against the passage
+ * by the app itself — so the word reaches the panel even when the voice model doesn't call its tool.
+ * Only requests about a word / sentence (or a word said on its own) are matched; chat like "okay, save it"
+ * is ignored. When the whole request isn't found, the longest part of it that is in the passage
+ * (exactly, never approximately) is used. Null = nothing to show.
+ */
+export function spokenTarget(pages: BookPage[], utterance: string): PassageSearch | null {
+  const said = words(utterance)
+  if (!said.length) return null
+  const asking = /\b(explain|mean|meaning|define|definition|word|phrase|idiom|sentence|paragraph|page)\b|\bwhat(?:'s| is)\b/i.test(utterance) || said.length <= 3
+  if (!asking) return null
+  const { query, ref } = parseBookRequest(utterance)
+  const whole = findInPassage(pages, query, ref)
+  if (whole.matches.length) return whole
+  const w = words(query)
+  for (let len = Math.min(w.length - 1, 8); len >= 1; len--) {
+    for (let i = 0; i + len <= w.length; i++) {
+      const part = w.slice(i, i + len)
+      if (part.every((x) => SPOKEN_STOP.has(x)) || (len === 1 && part[0].length < 3)) continue
+      const r = findInPassage(pages, part.join(' '), ref)
+      const exact = r.matches.filter((m) => m.exact)
+      if (exact.length) return { matches: exact, note: null }
+    }
+  }
+  return null
+}
+
+/**
+ * The newest thing the learner said in a voice conversation, once it is complete: the turn ended, or
+ * JARVIS started answering it. `key` changes only when there is something new to check.
+ */
+export function readyUtterance(transcript: { role: 'user' | 'model'; text: string; done: boolean }[]): { key: string; text: string } | null {
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const t = transcript[i]
+    if (t.role !== 'user') continue
+    const ready = t.done || transcript.slice(i + 1).some((x) => x.role === 'model')
+    if (!ready || !t.text.trim()) return null
+    // Counted from the start of the user's turns, so later JARVIS text doesn't change it.
+    const n = transcript.slice(0, i + 1).filter((x) => x.role === 'user').length
+    return { key: `${n}|${t.text.trim()}`, text: t.text.trim() }
+  }
+  return null
 }

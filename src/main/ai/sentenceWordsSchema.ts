@@ -16,6 +16,7 @@ vocabulary: words from the SELECTED text that are useful to learn or likely to b
 - If the selection is a single word, list that word (even if it is common), with its meaning in this context.
 - No duplicates; list a repeated word twice only if its meaning differs. Usually 0–8 items, in the order they appear.
 - term: exactly as written in the text. pos: its part of speech here.
+- If a word in the text is clearly misspelled (a printing or scanning error, e.g. "resemhled" for "resembled"), still list it: term = the correct spelling, written_as = the spelling in the text. Otherwise leave written_as "".
 - meaning_bn: ONE natural Bangla meaning that fits THIS context (not a list of dictionary meanings).
 - meaning_en: a simple English definition of that meaning (at most about 12 words).
 - example: one short, natural NEW sentence using it with the same meaning (never copy the source text).
@@ -35,6 +36,7 @@ const item = {
   type: Type.OBJECT,
   properties: {
     term: { type: Type.STRING },
+    written_as: { type: Type.STRING },
     pos: { type: Type.STRING },
     meaning_bn: { type: Type.STRING },
     meaning_en: { type: Type.STRING },
@@ -42,7 +44,7 @@ const item = {
     certain: { type: Type.BOOLEAN }
   },
   required: ['term', 'pos', 'meaning_bn', 'meaning_en', 'example', 'certain'],
-  propertyOrdering: ['term', 'pos', 'meaning_bn', 'meaning_en', 'example', 'certain']
+  propertyOrdering: ['term', 'written_as', 'pos', 'meaning_bn', 'meaning_en', 'example', 'certain']
 }
 
 export const SENTENCE_WORDS_SCHEMA: Schema = {
@@ -56,6 +58,7 @@ export const SENTENCE_WORDS_SCHEMA: Schema = {
         type: Type.OBJECT,
         properties: {
           term: { type: Type.STRING },
+          written_as: { type: Type.STRING },
           base_form: { type: Type.STRING },
           type: { type: Type.STRING, enum: ['idiom', 'phrasal verb', 'fixed expression'] },
           meaning_bn: { type: Type.STRING },
@@ -64,7 +67,7 @@ export const SENTENCE_WORDS_SCHEMA: Schema = {
           certain: { type: Type.BOOLEAN }
         },
         required: ['term', 'base_form', 'type', 'meaning_bn', 'meaning_en', 'example', 'certain'],
-        propertyOrdering: ['term', 'base_form', 'type', 'meaning_bn', 'meaning_en', 'example', 'certain']
+        propertyOrdering: ['term', 'written_as', 'base_form', 'type', 'meaning_bn', 'meaning_en', 'example', 'certain']
       }
     },
     ambiguity: { type: Type.STRING }

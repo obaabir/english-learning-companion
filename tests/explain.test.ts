@@ -19,8 +19,11 @@ describe('Explain analysis: only what is really in the text', () => {
       { expressions: [expr('give up', 'phrasal verb'), expr('turned the offer down', 'phrasal verb', 'turn down')] },
       'She never gave up, but in the end she turned the offer down.'
     )
-    // "give up" is not written that way in this text ("gave up"): the model must quote the text, so it is dropped.
-    expect(a.expressions.map((e) => e.baseForm)).toEqual(['turn down'])
+    // "give up" is written "gave up" here: kept, with the text's form shown.
+    expect(a.expressions.map((e) => [e.baseForm, e.writtenAs])).toEqual([
+      ['give up', 'gave up'],
+      ['turn down', undefined]
+    ])
     const b = normalizeAnalysis({ expressions: [expr('gave up', 'phrasal verb', 'give up')] }, 'She never gave up.')
     expect(b.expressions[0]).toMatchObject({ term: 'gave up', baseForm: 'give up', type: 'phrasal verb' })
   })
@@ -86,5 +89,22 @@ describe('Explain colours: WCAG contrast', () => {
     const fixed = readableVersion('#7FB3FF', '#F7F5EF')
     expect(contrastRatio(fixed, '#F7F5EF')).toBeGreaterThanOrEqual(AA_NORMAL)
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 0)
+  })
+})
+
+describe('Explain analysis: misspelled words in the source still get their card', () => {
+  it('"resembled" is kept for a text that says "resemhled" (scan error), showing how the text spells it', () => {
+    const a = normalizeAnalysis({ vocabulary: [vocab('resembled'), vocab('tramp'), vocab('inflation')] }, 'he may have resemhled a tramp')
+    expect(a.vocabulary.map((v) => [v.term, v.writtenAs])).toEqual([
+      ['resembled', 'resemhled'],
+      ['tramp', undefined]
+    ])
+  })
+  it('the model may also say how the text spells it', () => {
+    const a = normalizeAnalysis({ vocabulary: [{ ...vocab('was'), term: 'was', written_as: 'wos' }] }, 'He wos in business')
+    expect(a.vocabulary[0]).toMatchObject({ term: 'was', writtenAs: 'wos' })
+  })
+  it('a different word is still not accepted as a misspelling', () => {
+    expect(normalizeAnalysis({ vocabulary: [vocab('inflation')] }, 'The economy grew').vocabulary).toEqual([])
   })
 })

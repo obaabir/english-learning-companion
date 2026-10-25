@@ -99,8 +99,8 @@ export async function runAction(action: VoiceAction, anySel: VoiceSelection | nu
     case 'explainTarget': {
       // While a book passage is open, the word is looked up there and shown in the panel.
       if (!useReading.getState().active) return runAction({ type: 'ask', question: `What does "${action.target}" mean? Give its Bangla meaning and one example.` }, null)
-      const r = await useReading.getState().ask(action.target)
-      if (r.status === 'shown') return { ok: true, reply: `"${r.target}" — page ${r.match.pageLabel}, paragraph ${r.match.paragraph + 1}. The explanation is in the panel.` }
+      const r = await useReading.getState().ask(action.target, {}, { explain: false })
+      if (r.status === 'shown') return { ok: true, reply: `"${r.target}" — page ${r.match.pageLabel}, paragraph ${r.match.paragraph + 1}. It is in the panel: press Explain.` }
       if (r.status === 'choose') return { ok: true, reply: `It appears ${r.matches.length} times. Choose the place on the screen.` }
       if (r.status === 'missing') return { ok: false, reply: `${r.note} Ask again, or ask me for a general meaning.` }
       return { ok: false, reply: 'Open a passage in Reading Companion first.' }
