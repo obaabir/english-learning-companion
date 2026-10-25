@@ -13,7 +13,7 @@ import { ChatDock } from '@renderer/features/movie/ExplainPanel'
 import { useArticles } from './articleStore'
 import { ExplainAnalysisView, ExplanationHeading, OriginalContext, useExplainPaperStyle } from '@renderer/features/explain/ExplainSections'
 
-const SOURCE_LABEL = { browser: 'In-app browser', reader: 'Reader view', chrome: 'From Chrome', ai: 'From the explanation' } as const
+const SOURCE_LABEL = { browser: 'In-app browser', reader: 'Reader view', chrome: 'From Chrome', ai: 'From the explanation', book: 'From your book' } as const
 
 /** The selected word or sentence, its explanation, save actions and the chat (docked below). */
 export function ArticleStudyPanel(): ReactNode {
@@ -125,7 +125,7 @@ function SelectionView({ hasKey, explanation }: { hasKey: boolean; explanation: 
         </div>
         {selection.sentence && selection.sentence !== selection.text && selection.source !== 'ai' && (
           <p className="mt-1 text-sm text-muted">
-            <span className="text-xs font-medium tracking-wide uppercase">From the article: </span>
+            <span className="text-xs font-medium tracking-wide uppercase">{selection.source === 'book' ? 'From your book: ' : 'From the article: '}</span>
             <span className="italic">“{selection.sentence}”</span>
           </p>
         )}

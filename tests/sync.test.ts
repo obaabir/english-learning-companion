@@ -187,7 +187,7 @@ describe('upgrading an existing database', () => {
       ALTER TABLE flashcards DROP COLUMN last_reviewed_at; ALTER TABLE flashcards DROP COLUMN last_rating;
       DROP INDEX notes_collection; ALTER TABLE notes DROP COLUMN target; ALTER TABLE notes DROP COLUMN collection;
       ALTER TABLE flashcards DROP COLUMN legacy_front; ALTER TABLE flashcards DROP COLUMN legacy_back_json;
-      DROP TABLE vb_mistakes; DROP TABLE vb_reviews; DROP TABLE vb_items; DROP TABLE vb_sources; DROP TABLE vb_books;
+      DROP TABLE vb_mistakes; DROP TABLE vb_reviews; DROP TABLE vb_items; DROP TABLE vb_sources; DROP TABLE vb_books; DROP TABLE reading_sessions;
       INSERT INTO notes (kind, text, media_path, media_title) VALUES ('word', 'stubborn', 'https://youtu.be/v', 'Video');
       INSERT INTO notes (kind, text, media_path, media_title) VALUES ('word', 'stubborn', 'https://youtu.be/v', 'Video');
       INSERT INTO doc_targets (category, doc_id, title) VALUES ('movie', 'doc-old', 'Vocabulary & Sentences');
@@ -195,8 +195,8 @@ describe('upgrading an existing database', () => {
       INSERT INTO flashcards (note_id, front, back_json, card_json, due, state, reps, lapses) VALUES (1, 'stubborn', '{"meaning_bn":"","meaning_en":"","example":"","example_bn":"","note":""}', '{}', '2026-11-01T00:00:00.000Z', 2, 2, 0);
       INSERT INTO flashcard_reviews (flashcard_id, rating, reviewed_at) VALUES (1, 3, '2026-10-20T00:00:00.000Z');
     `)
-    // Back to before Phase 3 (the Phase 3, Phase 4, shared-vocabulary and Vocabulary Book migrations run again).
-    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 4}`)
+    // Back to before Phase 3 (the Phase 3, Phase 4, shared-vocabulary, Vocabulary Book and Reading Companion migrations run again).
+    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 5}`)
     raw.close()
 
     const db = openDatabase(file)

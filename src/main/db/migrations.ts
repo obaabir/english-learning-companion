@@ -399,6 +399,26 @@ const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
       );
       CREATE INDEX vb_mistakes_item ON vb_mistakes(item_id, created_at);
     `)
+  },
+  // Reading Companion: a passage of a physical book prepared in advance (pages → paragraphs), linked to
+  // an Articles entry so saved words point back to it; where the reader is and what was explained.
+  (db) => {
+    db.exec(`
+      CREATE TABLE reading_sessions (
+        id INTEGER PRIMARY KEY,
+        article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        book_title TEXT NOT NULL DEFAULT '',
+        author TEXT NOT NULL DEFAULT '',
+        edition TEXT NOT NULL DEFAULT '',
+        pages_json TEXT NOT NULL,
+        last_page INTEGER NOT NULL DEFAULT 0,
+        last_paragraph INTEGER NOT NULL DEFAULT 0,
+        history_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+    `)
   }
 ]
 

@@ -37,6 +37,7 @@ import type { EwRequest } from './ew'
 import type { Article, ArticleDetail, ArticleInput, WebSelection } from './articles'
 import type { HomeWeather, WeatherReport } from './voice'
 import type { ExplainAnalysis } from './explainAnalysis'
+import type { PageReadResult, ReadingSession, ReadingSessionInput, ReadingTarget } from './reading'
 import type { LiveEvent } from './liveTools'
 import type { VbAnswer, VbBook, VbDashboard, VbDraft, VbExtraction, VbItem, VbItemEdit, VbMistake, VbSession, VbSource, VbSourceKind } from './vocabBook'
 
@@ -99,6 +100,16 @@ export interface Api {
   /** Streams deltas over the `ai:chunk` event; resolves with the full text. */
   'ai:explain': (args: { requestId: string; promptId: number | null; context: StudyContext }) => Promise<string>
   /** Movie Mode: the words and idioms of an explained sentence (Bangla meaning, easy synonyms, one example). */
+  /** Reading Companion: prepared passages of physical books (Articles). */
+  'reading:list': () => Promise<ReadingSession[]>
+  'reading:get': (id: number) => Promise<ReadingSession | null>
+  'reading:save': (input: ReadingSessionInput) => Promise<ReadingSession>
+  'reading:position': (args: { id: number; page: number; paragraph: number }) => Promise<void>
+  'reading:addTarget': (args: { id: number; target: Omit<ReadingTarget, 'at'> }) => Promise<ReadingTarget[]>
+  'reading:delete': (id: number) => Promise<void>
+  /** One page photo → paragraphs (Gemini vision, or Windows OCR offline). The photo is kept. */
+  'reading:readPage': (args: { imageBase64: string; mimeType: string }) => Promise<PageReadResult>
+  'reading:pageImage': (file: string) => Promise<string>
   /** Explain: vocabulary, idioms and phrasal verbs of the selection, with meanings in this context. */
   'ai:analyze': (args: { text: string; sentence: string | null; context: string | null }) => Promise<ExplainAnalysis>
   'ai:listModels': () => Promise<string[]>

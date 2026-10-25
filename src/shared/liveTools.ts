@@ -10,6 +10,7 @@ export const LIVE_SECTIONS = [
   'youtube',
   'speaking_coach',
   'articles',
+  'reading_companion',
   'practice',
   'flashcards',
   'games',
@@ -63,6 +64,17 @@ const TOOLS: ToolDef[] = [
     description: 'Opens a section of the app.',
     params: { section: { type: 'STRING', description: 'The section to open.', enum: LIVE_SECTIONS } },
     required: ['section']
+  },
+  {
+    name: 'explain_from_book',
+    description:
+      'Reading Companion: the user is reading a physical book whose pages were prepared in the app. Finds the word, phrase or sentence in those pages (optionally on a given page / paragraph / sentence), shows it in the Explanation panel beside the passage, and returns the sentence it is in. Call it for every question about a word, phrase or sentence of the book.',
+    params: {
+      query: { type: 'STRING', description: 'The word, phrase or sentence (or its beginning) exactly as the user said it. Leave empty only when the user gave a page + paragraph (+ sentence) reference without words.' },
+      page: { type: 'STRING', description: 'Page number the user mentioned, e.g. "68".' },
+      paragraph: { type: 'STRING', description: 'Paragraph number on that page the user mentioned (1 = first).' },
+      sentence: { type: 'STRING', description: 'Sentence number in that paragraph (1 = first).' }
+    }
   },
   { name: 'go_back', description: 'Goes back to the previous screen of the app.', params: {} },
   {
@@ -148,7 +160,15 @@ Facts and actions:
 - "This", "this word", "the selected word": call get_selected_item first.
 - App actions (open any section, go back, go home = open_section "home", play/pause/open a movie, refresh, start revision, save, make a flashcard, show mistakes): use the tools. When the user asks to open or do something in the app, do it right away with the tool, then say briefly what you did. Only say an action is done if the tool result says ok. If a tool reports a problem, tell the user simply what to do.
 - Save or make flashcards only when the user asks. Nothing can be deleted by voice.
-- If the user says goodbye or asks to stop talking, call end_voice_session.`
+- If the user says goodbye or asks to stop talking, call end_voice_session.
+
+Reading a physical book (Reading Companion):
+- When the user asks about a word, phrase or sentence of the book they are reading, call explain_from_book first (with the page / paragraph / sentence if they said one). You cannot see the book: never guess which printed word they mean.
+- If they say only "this word" or "this sentence" without saying it, ask them to say the word or read the start of the sentence (and the page if they know it).
+- Found: explain it from the returned sentence — its meaning HERE, the Bangla meaning, a simple English meaning and one short example (more only if asked). Say if it is an idiom or phrasal verb. The same explanation is shown in the panel.
+- found = "approximate": first check with the user that they meant the returned words.
+- Several places: read the choices briefly and ask which one. Not found: say it is not in the prepared pages, and offer a general explanation, clearly saying it is general and not from their book.
+- Follow-ups ("simpler", "in Bangla", "another example", "why", "is it an idiom") are about the last thing explained, unless the user names something else.`
 
 /** Why a Voice Mode session could not start or stopped. */
 export type LiveFailure = 'quota' | 'billing' | 'model' | 'auth' | 'network' | 'other' | 'ended'

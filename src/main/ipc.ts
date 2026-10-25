@@ -52,6 +52,8 @@ import { getArticleDetail, listArticles, recordArticle, setArticleNote } from '.
 import { buildArticleExplain } from './ai/article'
 import { recognizeWav, WakeListener } from './voice/recognizer'
 import { getHomeWeather, getWeather } from './voice/weather'
+import { createReading } from './reading/service'
+import { addReadingTarget, deleteReadingSession, getReadingSession, listReadingSessions, saveReadingSession, setReadingPosition } from './db/repos/reading'
 import { LiveVoice } from './voice/live'
 import { currentTime, weatherForVoice } from './voice/liveMainTools'
 import { initialTarget, isTargetLike, normTerm } from '@shared/vocab'
@@ -512,6 +514,17 @@ export function registerIpc(s: Services): void {
     learningChanged()
   })
   handle('revision:dashboard', () => revisionDashboard(db))
+
+  // ---- Reading Companion (Articles): prepared passages of physical books
+  const reading = createReading({ gemini, imagesDir: join(app.getPath('userData'), 'reading', 'pages') })
+  handle('reading:list', () => listReadingSessions(db))
+  handle('reading:get', (id) => getReadingSession(db, id))
+  handle('reading:save', (input) => saveReadingSession(db, input))
+  handle('reading:position', ({ id, page, paragraph }) => setReadingPosition(db, id, page, paragraph))
+  handle('reading:addTarget', ({ id, target }) => addReadingTarget(db, id, target))
+  handle('reading:delete', (id) => deleteReadingSession(db, id))
+  handle('reading:readPage', (args) => reading.readPage(args))
+  handle('reading:pageImage', (file) => reading.pageImage(file))
 
   // ---- Vocabulary Book Learning (separate module: own tables, deck, schedule, mistakes, Google Doc)
   const vb = createVocabBook(db, {

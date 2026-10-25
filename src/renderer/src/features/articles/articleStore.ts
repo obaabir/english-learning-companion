@@ -4,8 +4,9 @@ import { domainOf, isPasted, type ArticleBlock, type ArticleInput, type WebSelec
 import { errorMessage, invoke, newRequestId, streamCall } from '@renderer/lib/api'
 import { useChat } from '@renderer/stores/chat'
 import { useArticleLayout } from './articleLayout'
+import { isBook } from '@shared/reading'
 
-export type ArticleView = 'browse' | 'reader' | 'history'
+export type ArticleView = 'browse' | 'reader' | 'history' | 'companion'
 
 /** A word or sentence selected in an article (in-app browser, Reader view or Chrome). */
 export interface ArticleSelection {
@@ -18,7 +19,8 @@ export interface ArticleSelection {
   url: string | null
   title: string | null
   domain: string | null
-  source: 'browser' | 'reader' | 'chrome' | 'ai'
+  /** book = a prepared passage of a physical book (Reading Companion). */
+  source: 'browser' | 'reader' | 'chrome' | 'ai' | 'book'
 }
 
 export interface ArticleExplanation {
@@ -146,7 +148,7 @@ export const useArticles = create<ArticlesState>((set, get) => ({
   },
 
   ensureArticle: async (url, title) => {
-    if (!url || (!/^https?:\/\//.test(url) && !isPasted(url))) return null
+    if (!url || (!/^https?:\/\//.test(url) && !isPasted(url) && !isBook(url))) return null
     const known = get().articleIds[url]
     if (known) return known
     const article = await invoke('articles:record', get().extracted[url] ?? { url, title: title || domainOf(url) })

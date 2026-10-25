@@ -1,6 +1,8 @@
 import { GoogleGenAI, MediaResolution, ThinkingLevel, type Content, type Schema, type ThinkingConfig } from '@google/genai'
 import type { ChatFocus, FlashcardBack, Note, NoteData, PracticeItem, StudyContext } from '@shared/types'
 import { normalizeAnalysis, type ExplainAnalysis, type RawAnalysis } from '@shared/explainAnalysis'
+import type { BookPageRaw } from '../reading/service'
+import { BOOK_PAGE_INSTRUCTION, BOOK_PAGE_SCHEMA } from './readingSchemas'
 import { PRACTICE_INSTRUCTION, PRACTICE_SCHEMA } from './practice'
 import { targetMeaning } from '@shared/vocab'
 import {
@@ -577,6 +579,18 @@ export class GeminiService {
     if (context && context !== sentence && context !== text) parts.push(`Nearby text (for context only):\n${context.slice(0, 1200)}`)
     const raw = await this.json<RawAnalysis>(SENTENCE_WORDS_INSTRUCTION, parts.join('\n\n'), SENTENCE_WORDS_SCHEMA, true)
     return normalizeAnalysis(raw, text, sentence)
+  }
+
+  /** Reading Companion: the text of one photographed book page, paragraph by paragraph, exactly as printed. */
+  async readBookPage(imageBase64: string, mimeType: string): Promise<BookPageRaw | null> {
+    return this.resilient(async (model) => {
+      const res = await this.client().models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: 'Transcribe this book page.' }] }],
+        config: { systemInstruction: BOOK_PAGE_INSTRUCTION, responseMimeType: 'application/json', responseSchema: BOOK_PAGE_SCHEMA }
+      })
+      return JSON.parse(res.text ?? 'null') as BookPageRaw | null
+    })
   }
 
   /** Vocabulary Book: the words visible in a picture, in reading order; unclear ones are marked uncertain. */

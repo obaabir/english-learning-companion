@@ -9,6 +9,7 @@ import { getSelection, useMovie } from '@renderer/stores/movie'
 import { youtubeStudy } from '@renderer/stores/youtube'
 import { useIntents } from '@renderer/stores/intents'
 import { useArticles } from '@renderer/features/articles/articleStore'
+import { useReading } from '@renderer/features/articles/readingStore'
 import { speak, speakable, stopSpeaking, useVoice } from './voiceStore'
 
 /** The text a command like "save this word" is about, with its context and source. */
@@ -94,6 +95,16 @@ export async function runAction(action: VoiceAction, anySel: VoiceSelection | nu
 
     case 'player':
       return runPlayer(action.command)
+
+    case 'explainTarget': {
+      // While a book passage is open, the word is looked up there and shown in the panel.
+      if (!useReading.getState().active) return runAction({ type: 'ask', question: `What does "${action.target}" mean? Give its Bangla meaning and one example.` }, null)
+      const r = await useReading.getState().ask(action.target)
+      if (r.status === 'shown') return { ok: true, reply: `"${r.target}" — page ${r.match.pageLabel}, paragraph ${r.match.paragraph + 1}. The explanation is in the panel.` }
+      if (r.status === 'choose') return { ok: true, reply: `It appears ${r.matches.length} times. Choose the place on the screen.` }
+      if (r.status === 'missing') return { ok: false, reply: `${r.note} Ask again, or ask me for a general meaning.` }
+      return { ok: false, reply: 'Open a passage in Reading Companion first.' }
+    }
 
     case 'revision':
       useIntents.getState().request({ flashcardsMode: action.start ? 'review' : 'dashboard' })

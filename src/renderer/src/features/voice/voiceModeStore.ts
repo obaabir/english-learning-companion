@@ -9,6 +9,8 @@ import { recordingToWavBase64 } from '@renderer/features/practice/audio'
 import { useFsp } from '@renderer/features/flashcards/fsp/fspStore'
 import { topMistakes, fspToday } from '@renderer/features/flashcards/fsp/fspLogic'
 import { currentSelection, handleText, runAction, runPlayer } from './voiceActions'
+import { useReading } from '@renderer/features/articles/readingStore'
+import { useArticles } from '@renderer/features/articles/articleStore'
 import { normalizeWav, recordCommand, speak, stopSpeaking, useVoice } from './voiceStore'
 import { PcmPlayer, startMic, type Mic } from './liveAudio'
 
@@ -260,6 +262,7 @@ function activityText(name: string, args: Record<string, string>, result?: Recor
     get_selected_item: 'Read your selection',
     open_section: `Opened ${args.section?.replace(/_/g, ' ')}`,
     go_back: 'Went back',
+    explain_from_book: `Book: ${args.query || [args.page && `page ${args.page}`, args.paragraph && `paragraph ${args.paragraph}`].filter(Boolean).join(', ')}`,
     control_movie: `Movie: ${args.action ?? ''}`,
     refresh_section: 'Refreshed',
     start_revision: 'Started revision',
@@ -276,6 +279,7 @@ const SECTIONS: Record<string, { page: Page; label: string }> = {
   home: { page: 'home', label: 'Home' },
   speaking_coach: { page: 'speaking', label: 'Speaking Coach' },
   ielts: { page: 'ielts', label: 'IELTS' },
+  reading_companion: { page: 'articles', label: 'Reading Companion' },
   english_vocabulary: { page: 'vocabulary', label: 'English Vocabulary' },
   idioms: { page: 'idioms', label: 'Idioms and Expressions' },
   sentence_structures: { page: 'structures', label: 'Sentence Structures' },
@@ -305,8 +309,11 @@ export async function runLiveTool(name: string, args: Record<string, string>): P
       const target = SECTIONS[args.section]
       if (target === undefined) return { ok: false, error: 'Unknown section.' }
       app.setPage(target.page)
+      if (args.section === 'reading_companion') useArticles.getState().setView('companion')
       return { ok: true, message: `Opened ${target.label}.` }
     }
+    case 'explain_from_book':
+      return explainFromBook(args)
     case 'go_back':
       app.goBack()
       return { ok: true, message: 'Went back.' }
@@ -339,6 +346,35 @@ export async function runLiveTool(name: string, args: Record<string, string>): P
       return { ok: true, message: 'Voice Mode will end after your goodbye.' }
     default:
       return { ok: false, error: `Unknown tool "${name}".` }
+  }
+}
+
+/** Reading Companion: find what the user named in the prepared book pages and show it in the panel. */
+async function explainFromBook(args: Record<string, string>): Promise<Record<string, unknown>> {
+  const num = (v?: string): number | null => (v && Number.isFinite(Number(v)) ? Number(v) : null)
+  const r = await useReading.getState().ask(args.query ?? '', { page: args.page || null, paragraph: num(args.paragraph), sentence: num(args.sentence) })
+  const book = useReading.getState().active
+  if (r.status === 'no-session')
+    return { ok: false, error: 'No book passage is open. Ask the user to open Articles → Reading Companion and choose (or prepare) the pages they are reading.' }
+  if (r.status === 'missing') return { ok: true, found: false, note: r.note, hint: 'Not in the prepared pages. Offer a general explanation, clearly saying it is general and not from the book.' }
+  if (r.status === 'choose')
+    return {
+      ok: true,
+      found: 'several',
+      places: r.matches.slice(0, 5).map((m) => ({ page: m.pageLabel, paragraph: m.paragraph + 1, sentence: m.sentenceText })),
+      hint: 'Ask the user which one (they can also tap it on screen).'
+    }
+  const m = r.match
+  return {
+    ok: true,
+    found: m.exact ? 'exact' : 'approximate',
+    target: m.sentence < 0 || m.matchText === m.sentenceText ? m.sentenceText : m.matchText,
+    page: m.pageLabel,
+    paragraph: m.paragraph + 1,
+    sentence_text: m.sentenceText,
+    paragraph_text: m.paragraphText.slice(0, 900),
+    book: book ? [book.bookTitle, book.author].filter(Boolean).join(' by ') || book.name : null,
+    shown_in_panel: true
   }
 }
 

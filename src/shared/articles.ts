@@ -56,6 +56,7 @@ export function isPasted(url: string): boolean {
 
 export function domainOf(url: string): string {
   if (isPasted(url)) return 'Pasted text'
+  if (url.startsWith('book:')) return 'Book'
   try {
     return new URL(url).hostname.replace(/^www\./, '')
   } catch {

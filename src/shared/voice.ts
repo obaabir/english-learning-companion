@@ -34,6 +34,8 @@ export type VoiceAction =
   | { type: 'player'; command: 'play' | 'pause' | 'open' }
   /** Reload the section on screen. */
   | { type: 'refresh' }
+  /** Explain something named in the command ("explain the word inevitable"), e.g. from the book being read. */
+  | { type: 'explainTarget'; target: string }
   | { type: 'revision'; start: boolean }
   | { type: 'game'; mode: GameMode; label: string }
   | { type: 'read'; what: 'sentence' | 'word' | 'selection' }
@@ -134,6 +136,13 @@ export function parseCommand(raw: string): VoiceAction {
     return { type: 'read', what: /\bsentence\b/.test(t) ? 'sentence' : /\bword\b/.test(t) ? 'word' : 'selection' }
   }
 
+  // "Page 68, what does inevitable mean?" / "page 12 paragraph 3, the second sentence": the place is parsed later.
+  if (/\bpage\s+\w+/.test(t) && /\b(mean|meaning|explain|paragraph|sentence|word|phrase)\b/.test(t)) return { type: 'explainTarget', target: t }
+  const where = String.raw`(?:\s+(?:in|on|from) (?:this|the) (?:passage|sentence|book|page))?`
+  const named =
+    t.match(new RegExp(String.raw`^(?:explain|what is the meaning of|meaning of)\s+(?:the\s+)?(?:word|phrase|sentence|expression|idiom)?\s*(.+?)${where}$`)) ??
+    t.match(new RegExp(String.raw`^what does\s+(?:the\s+)?(?:word|phrase|expression|idiom)?\s*(.+?)\s+mean${where}$`))
+  if (named && !/^(this|that|it)\b/.test(named[1]) && !/^(the )?time\b|weather|date\b|day\b/.test(named[1])) return { type: 'explainTarget', target: named[1] }
   if (/^(explain|translate|what does this mean|meaning of this)\b/.test(t)) return { type: 'explain', bangla: /\bbangla\b|\bbengali\b|\bbangle\b/.test(t) || /^translate\b/.test(t) }
 
   if (/\b(flash ?cards?|flash card)\b/.test(t) && /^(add|make|create|put|save|turn)\b/.test(t)) return { type: 'flashcard' }

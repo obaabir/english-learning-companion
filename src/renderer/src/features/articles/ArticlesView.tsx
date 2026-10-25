@@ -3,6 +3,7 @@ import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import {
   ArrowLeft,
   ArrowRight,
+  BookHeadphones,
   BookOpenText,
   ClipboardPaste,
   Globe,
@@ -25,6 +26,7 @@ import { registerSelectionScope } from '@renderer/components/SelectionSaveMenu'
 import { Button, Input, Textarea } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
 import { browser, useArticles, type ArticleView } from './articleStore'
+import { ReadingCompanion } from './ReadingCompanion'
 import { ArticleBrowser } from './ArticleBrowser'
 import { ReaderView } from './ReaderView'
 import { ArticleHistory } from './ArticleHistory'
@@ -114,6 +116,7 @@ export function ArticlesView({ active }: { active: boolean }): ReactNode {
                 <ArticleHistory />
               </div>
             )}
+            {view === 'companion' && <ReadingCompanion />}
           </div>
         </div>
       </Panel>
@@ -166,26 +169,30 @@ function Toolbar({ view, onReader }: { view: ArticleView; onReader: () => void }
         {tab('browse', 'Browse', <Globe className="size-4" />, () => setView('browse'))}
         {tab('reader', 'Reader', <BookOpenText className="size-4" />, onReader)}
         {tab('history', 'History', <History className="size-4" />, () => openHistory(null))}
+        {tab('companion', 'Reading Companion', <BookHeadphones className="size-4" />, () => setView('companion'))}
         <span className="flex-1" />
         <PasteButton />
         <span className="mx-0.5 h-5 w-px bg-line" aria-hidden />
         <LayoutToggles />
       </div>
-      <form
-        className="flex items-center gap-1"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (address.trim()) openUrl(toAddress(address))
-        }}
-      >
-        <Button type="button" variant="ghost" size="sm" icon={<ArrowLeft className="size-4" />} aria-label="Back" title="Back" disabled={!page} onClick={() => browser.current?.canGoBack() && browser.current.goBack()} />
-        <Button type="button" variant="ghost" size="sm" icon={<ArrowRight className="size-4" />} aria-label="Forward" title="Forward" disabled={!page} onClick={() => browser.current?.canGoForward() && browser.current.goForward()} />
-        <Button type="button" variant="ghost" size="sm" icon={<RotateCw className="size-4" />} aria-label="Reload page" title="Reload page" disabled={!page} onClick={() => browser.current?.reload()} />
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted" />
-          <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Type a web address or search…" className="h-9 pl-8 text-sm" aria-label="Web address" />
-        </div>
-      </form>
+      {/* The address bar is for web pages; Reading Companion has its own controls. */}
+      {view !== 'companion' && (
+        <form
+          className="flex items-center gap-1"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (address.trim()) openUrl(toAddress(address))
+          }}
+        >
+          <Button type="button" variant="ghost" size="sm" icon={<ArrowLeft className="size-4" />} aria-label="Back" title="Back" disabled={!page} onClick={() => browser.current?.canGoBack() && browser.current.goBack()} />
+          <Button type="button" variant="ghost" size="sm" icon={<ArrowRight className="size-4" />} aria-label="Forward" title="Forward" disabled={!page} onClick={() => browser.current?.canGoForward() && browser.current.goForward()} />
+          <Button type="button" variant="ghost" size="sm" icon={<RotateCw className="size-4" />} aria-label="Reload page" title="Reload page" disabled={!page} onClick={() => browser.current?.reload()} />
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted" />
+            <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Type a web address or search…" className="h-9 pl-8 text-sm" aria-label="Web address" />
+          </div>
+        </form>
+      )}
     </div>
   )
 }
