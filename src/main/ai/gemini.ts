@@ -1,5 +1,6 @@
 import { GoogleGenAI, MediaResolution, ThinkingLevel, type Content, type Schema, type ThinkingConfig } from '@google/genai'
-import type { ChatFocus, FlashcardBack, Note, NoteData, PracticeItem, SentenceWord, StudyContext } from '@shared/types'
+import type { ChatFocus, FlashcardBack, Note, NoteData, PracticeItem, StudyContext } from '@shared/types'
+import { normalizeAnalysis, type ExplainAnalysis, type RawAnalysis } from '@shared/explainAnalysis'
 import { PRACTICE_INSTRUCTION, PRACTICE_SCHEMA } from './practice'
 import { targetMeaning } from '@shared/vocab'
 import {
@@ -52,6 +53,14 @@ export function buildStudyMessage(ctx: StudyContext): string {
   if (ctx.mediaTitle) parts.push(`Source: ${ctx.mediaTitle}`)
   return parts.join('\n\n')
 }
+
+/**
+ * Added to an Explain request: the app already shows the vocabulary, idioms and phrasal verbs of the text
+ * (with Bangla meaning, simple English meaning and an example each), so the explanation focuses on the
+ * text as a whole instead of listing them again.
+ */
+export const EXPLAIN_LIST_NOTE =
+  '\n\n(Note: the app already shows the vocabulary, idioms and phrasal verbs of this text separately, each with its Bangla meaning, a simple English meaning and one example. Do not list them again. Focus on what the text means as a whole: natural Bangla translation, simple English meaning, implied or figurative meaning, and important grammar.)'
 
 /**
  * A chat question with the text the learner highlighted. The model sees the highlight,
@@ -555,17 +564,19 @@ export class GeminiService {
     return this.json(YOUR_TURN_INSTRUCTION, `Phrases: ${phrases.join(', ')}\nLearner's sentence: "${sentence}"`, YOUR_TURN_SCHEMA, true)
   }
 
-  /** Movie Mode: the words and idioms of one sentence, each with Bangla meaning, easy synonyms and an example. */
-  async sentenceWords(sentence: string): Promise<SentenceWord[]> {
-    const r = await this.json<{ items?: { term: string; kind: SentenceWord['kind']; meaning_bn: string; synonyms: string[]; example: string }[] }>(
-      SENTENCE_WORDS_INSTRUCTION,
-      `Sentence: "${sentence.slice(0, 1000)}"`,
-      SENTENCE_WORDS_SCHEMA,
-      true
-    )
-    return (r?.items ?? [])
-      .filter((i) => i.term?.trim())
-      .map((i) => ({ term: i.term.trim(), kind: i.kind, meaningBn: i.meaning_bn?.trim() ?? '', synonyms: (i.synonyms ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3), example: i.example?.trim() ?? '' }))
+/**
+   * Explain: the vocabulary, idioms and phrasal verbs of the selected text with their meanings in this
+   * context. Items that don't really occur in the text are dropped (see normalizeAnalysis).
+   */
+  async analyzeText(args: { text: string; sentence: string | null; context: string | null }): Promise<ExplainAnalysis> {
+    const text = args.text.trim().slice(0, 1500)
+    const parts = [`Selected text: "${text}"`]
+    const sentence = args.sentence?.trim()
+    if (sentence && sentence !== text) parts.push(`It comes from this sentence: "${sentence.slice(0, 1000)}"`)
+    const context = args.context?.replace(/\s+/g, ' ').trim()
+    if (context && context !== sentence && context !== text) parts.push(`Nearby text (for context only):\n${context.slice(0, 1200)}`)
+    const raw = await this.json<RawAnalysis>(SENTENCE_WORDS_INSTRUCTION, parts.join('\n\n'), SENTENCE_WORDS_SCHEMA, true)
+    return normalizeAnalysis(raw, text, sentence)
   }
 
   /** Vocabulary Book: the words visible in a picture, in reading order; unclear ones are marked uncertain. */

@@ -924,3 +924,234 @@ body {
 .jarvis-mic[data-active='true'] {
   background: rgba(255, 45, 171, 0.18);
 }
+
+/* ------------------------------------------------------------------ *
+ * Explain reading surface (Movies, YouTube, Articles): a light, paper-like page inside the dark app.
+ * Colour roles: near-black text and meanings (--ex-text), vocabulary words (--ex-vocab), example
+ * sentences (--ex-example), on --ex-bg. The user can change bg / vocab / example (checked for 4.5:1).
+ * App tokens are redefined here so everything inside (Markdown, notices, badges) stays readable.
+ * ------------------------------------------------------------------ */
+.explain-paper {
+  --ex-muted: #57534e;
+  --text: var(--ex-text);
+  --ink: var(--ex-text);
+  --muted: var(--ex-muted);
+  --border: rgba(0, 0, 0, 0.12);
+  --hairline: rgba(0, 0, 0, 0.12);
+  --surface-2: rgba(0, 0, 0, 0.05);
+  --accent: #a3135f;
+  --accent-soft: rgba(163, 19, 95, 0.1);
+  --accent-fg: #ffffff;
+  --rose: #a3135f;
+  --info: #365314;
+  --info-soft: rgba(101, 163, 13, 0.14);
+  --warn: #8a3b0a;
+  --warn-soft: rgba(217, 119, 6, 0.14);
+  --danger: #b91c1c;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  background: var(--ex-bg);
+  color: var(--ex-text);
+  color-scheme: light;
+  scrollbar-color: rgba(0, 0, 0, 0.28) transparent;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.explain-paper ::selection {
+  background: rgba(36, 87, 197, 0.22);
+  color: var(--ex-text);
+}
+.explain-paper :focus-visible {
+  outline: 2px solid var(--ex-vocab);
+  outline-offset: 2px;
+}
+.explain-paper .prose-ai code {
+  background: rgba(0, 0, 0, 0.06);
+}
+.explain-paper .prose-ai th {
+  background: rgba(0, 0, 0, 0.05);
+}
+.ex-section + .ex-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+.ex-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ex-muted);
+}
+.ex-muted {
+  color: var(--ex-muted);
+}
+.ex-original {
+  font-size: 17px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--ex-text);
+}
+.ex-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.ex-card-expression {
+  border-left: 3px solid var(--ex-vocab);
+}
+.ex-term {
+  font-weight: 650;
+  font-size: 16px;
+  color: var(--ex-vocab);
+}
+.ex-example {
+  color: var(--ex-example);
+}
+.ex-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin-top: 6px;
+  font-size: 14px;
+}
+.ex-fields dt {
+  color: var(--ex-muted);
+  font-size: 12px;
+  padding-top: 2px;
+}
+.ex-fields dd {
+  margin: 0;
+  color: var(--ex-text);
+}
+.ex-fields dd.ex-example {
+  color: var(--ex-example);
+}
+@container (max-width: 420px) {
+  .ex-fields {
+    grid-template-columns: 1fr;
+  }
+  .ex-fields dd {
+    margin-bottom: 4px;
+  }
+}
+.ex-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  color: var(--ex-text);
+}
+.ex-tag-type {
+  border-color: var(--ex-vocab);
+}
+.ex-note {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.1);
+  color: #713f12;
+}
+.ex-link {
+  color: var(--ex-vocab);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ex-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--ex-muted);
+}
+.ex-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--ex-text);
+}
+.ex-popover {
+  position: absolute;
+  right: 0;
+  top: 34px;
+  z-index: 30;
+  width: min(340px, 86vw);
+  padding: 14px;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #171717;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.ex-swatch {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+.ex-hex {
+  width: 76px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  background: #fff;
+  color: #171717;
+}
+.ex-ok {
+  font-size: 11px;
+  color: #166534;
+  white-space: nowrap;
+}
+.ex-bad {
+  font-size: 11px;
+  color: #b91c1c;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ex-preview {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: var(--ex-bg);
+  color: var(--ex-text);
+}
+.ex-warn {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.08);
+  color: #991b1b;
+}
+.ex-btn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #171717;
+  background: #fff;
+}
+.ex-btn:hover {
+  background: #f3f3f3;
+}
+.ex-btn-primary {
+  background: #171717;
+  color: #fff;
+  border-color: #171717;
+}
+.ex-btn-primary:hover {
+  background: #2b2b2b;
+}
+.ex-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

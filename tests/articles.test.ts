@@ -48,8 +48,10 @@ describe('article explanations', () => {
   it('word format with article context', () => {
     const r = buildArticleExplain({ text: 'criticised', sentence: 'The minister was heavily criticised.', paragraph: 'Long para…', title: 'Delay', domain: 'bbc.com' })
     expect(r.mode).toBe('word')
-    for (const h of ['বাংলা অর্থ', 'Simple English definition', 'Meaning in this article', 'Part of speech', 'Synonyms', 'Examples (AI-generated)', 'Common collocations', 'Usage notes'])
-      expect(r.systemInstruction).toContain(h)
+    for (const h of ['Meaning in this article', 'Synonyms', 'More examples (AI-generated)', 'Common collocations', 'Usage notes']) expect(r.systemInstruction).toContain(h)
+    // Bangla meaning, definition, part of speech and one example are on the vocabulary card, not repeated here.
+    expect(r.systemInstruction).toContain('already shown by the app')
+    expect(r.systemInstruction).not.toContain('### Part of speech')
     expect(r.message).toContain('Original sentence from the article: "The minister was heavily criticised."')
     expect(r.message).toContain('Delay (bbc.com)')
   })
@@ -57,9 +59,10 @@ describe('article explanations', () => {
   it('sentence format lists only relevant grammar', () => {
     const r = buildArticleExplain({ text: 'The minister, who had promised reform, resigned on Monday.', sentence: null, paragraph: null, title: null, domain: null })
     expect(r.mode).toBe('sentence')
-    for (const h of ['বাংলা অনুবাদ', 'Simple English explanation', 'Sentence structure', 'Main and subordinate clauses', 'Grammar patterns', 'Idioms and phrasal verbs', 'Reusable structures'])
+    for (const h of ['বাংলা অনুবাদ', 'Simple English explanation', 'Sentence structure', 'Main and subordinate clauses', 'Grammar patterns', 'Reusable structures'])
       expect(r.systemInstruction).toContain(h)
     expect(r.systemInstruction).toMatch(/ONLY patterns that actually appear/)
+    expect(r.systemInstruction).not.toContain('### Idioms and phrasal verbs')
   })
 
   it('chat follow-ups get the word, sentence, article text and earlier explanation', () => {

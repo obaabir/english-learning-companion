@@ -7,25 +7,18 @@ is your own explanation; label any example you invent as AI-generated, never pre
 
 const WORD = `${COMMON}
 
-The learner selected a word or short phrase. Explain it AS IT IS USED in this article, using exactly these headings in this order:
-
-### বাংলা অর্থ (Bangla meaning)
-The Bangla meaning that fits this context (add a second common meaning only if useful).
-
-### Simple English definition
-One short, simple definition.
+The learner selected a word or short phrase. Its Bangla meaning, simple English definition, part of speech and one
+example are already shown by the app as a vocabulary card, so do not repeat those. Explain it AS IT IS USED in this
+article, using exactly these headings in this order:
 
 ### Meaning in this article
 Start with **From the article:** followed by the original sentence as a blockquote. Then explain in 1–2 sentences what it means here.
 
-### Part of speech
-Its part of speech in this sentence (e.g. noun, verb, phrasal verb, adjective, idiom).
-
 ### Synonyms
 3–5 synonyms that fit THIS meaning only.
 
-### Examples (AI-generated)
-Exactly three natural example sentences (not from the article). After each one, its natural Bangla translation on the next line starting with "বাংলা:".
+### More examples (AI-generated)
+Two natural example sentences (not from the article). After each one, its natural Bangla translation on the next line starting with "বাংলা:".
 
 ### Common collocations
 Words it is commonly used with (e.g. "make a decision", "heavily criticised").
@@ -35,7 +28,8 @@ Only genuinely useful notes: formality, common mistakes, British/American differ
 
 const SENTENCE = `${COMMON}
 
-The learner selected a sentence. Use these headings in this order:
+The learner selected a sentence. Its vocabulary, idioms and phrasal verbs are already shown by the app as separate cards,
+so do not list them again. Use these headings in this order:
 
 ### বাংলা অনুবাদ (Natural Bangla translation)
 
@@ -50,9 +44,6 @@ The main clause and each subordinate clause with its type (relative, adverbial, 
 
 ### Grammar patterns
 ONLY patterns that actually appear in this sentence (tense, voice, modal verbs, conditionals, relative clauses, participle phrases, inversion, comparison, etc.). Never list categories that are not present.
-
-### Idioms and phrasal verbs
-Only if the sentence contains any, with their Bangla meaning. If there are none, leave this section out completely.
 
 ### Reusable structures (AI-generated examples)
 1–3 sentence templates the learner can reuse (e.g. "The reason why … is that …"), each with one new example sentence and its Bangla translation ("বাংলা:").`

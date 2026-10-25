@@ -21,7 +21,7 @@ import { NOTE_KINDS, formatTimestamp, type NoteKind, type StudyContext } from '@
 import { errorMessage, invoke, newRequestId, on, streamCall } from '@renderer/lib/api'
 import { useApp } from '@renderer/stores/app'
 import { contextLines, getSelection, useMovie, useStudy, useStudyStore, type StudyActions, type StudySelection } from '@renderer/stores/movie'
-import { SentenceWords } from './SentenceWords'
+import { ExplainAnalysisView, ExplanationHeading, OriginalContext, useExplainPaperStyle } from '@renderer/features/explain/ExplainSections'
 import { useChat } from '@renderer/stores/chat'
 import { CHAT_MAX, CHAT_MIN, toggleChatExpanded, useLayout } from '@renderer/stores/layout'
 import { focusFromSelection } from '@renderer/lib/chatFocus'
@@ -196,6 +196,7 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
   const line = selection.line
   const bodyRef = useRef<HTMLDivElement>(null)
   const wordClickTimer = useRef<number | undefined>(undefined)
+  const paperStyle = useExplainPaperStyle()
 
   /**
    * Click an English word in the explanation: the chat opens and asks for its Bangla meaning
@@ -255,6 +256,12 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
 
   useEffect(() => setKind(selection.suggestedKind), [selection.suggestedKind])
   useEffect(() => on('notes:docsResult', (r) => r.ok && r.noteId === store.getState().savedNotes[selection.key] && setInDocs(true)), [selection.key])
+
+  /** The lines around the selection, so the vocabulary meanings follow the scene. */
+  const analysisContext = (): string | null => {
+    const { before, after } = contextLines(store.getState().lines, line)
+    return [...before, ...after].join(' ') || null
+  }
 
   const buildContext = (): StudyContext => {
     const { before, after } = contextLines(store.getState().lines, line)
@@ -478,7 +485,14 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
           </Collapse>
         </div>
 
-        <div ref={bodyRef} onClick={onExplanationClick} onMouseUp={onExplanationMouseUp} className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
+        {/* The reading surface: A Original, B Vocabulary, C Idioms & Phrasal Verbs, D Explanation. */}
+        <div
+          ref={bodyRef}
+          onClick={onExplanationClick}
+          onMouseUp={onExplanationMouseUp}
+          className="explain-paper relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4"
+          style={paperStyle}
+        >
           {!hasKey && (
             <div className="anim-fade-in mb-4 rounded-xl bg-info-soft px-3 py-2.5 text-sm text-info">
               Add your Gemini API key in{' '}
@@ -488,34 +502,35 @@ function SelectionView({ selection }: { selection: StudySelection }): ReactNode 
               to get explanations and chat.
             </div>
           )}
+          <OriginalContext text={selection.text} sentence={selection.sentence} source={line?.mediaTitle ?? null} />
           {explanation ? (
             <>
-              {explanation.text && <Markdown text={explanation.text} streaming={explanation.status === 'streaming'} />}
-              {explanation.status === 'streaming' && !explanation.text && (
-                <p className="flex items-center gap-2 text-sm text-muted">
-                  <Loader2 className="size-4 animate-spin" /> Thinking…
-                </p>
-              )}
-              {explanation.status === 'error' && (
-                <div className="anim-fade-in mt-3 rounded-xl bg-danger-soft px-3 py-2.5 text-sm text-danger">
-                  <p>{explanation.error}</p>
-                  <Button size="sm" variant="secondary" className="mt-2" icon={<RotateCcw className="size-3.5" />} onClick={() => void explain()}>
-                    Try again
-                  </Button>
-                </div>
-              )}
-              {explanation.status === 'done' && (
-                <p className="mt-4 text-xs text-muted">
-                  <Badge>Tip</Badge> Highlight any phrase above to save it as a structure, word or idiom.
-                </p>
-              )}
-              {/* Movie Mode: when a whole sentence is explained, its words and idioms are listed separately. */}
-              {isMovie && explanation.status !== 'error' && (selection.line ? selection.text === selection.sentence : selection.text.trim().split(/\s+/).length >= 3) && (
-                <SentenceWords sentence={selection.text} />
-              )}
+              {explanation.status !== 'error' && <ExplainAnalysisView text={selection.text} sentence={selection.sentence} context={analysisContext()} />}
+              <section className="ex-section" aria-label="Explanation">
+                <ExplanationHeading />
+                {explanation.text && <Markdown text={explanation.text} streaming={explanation.status === 'streaming'} />}
+                {explanation.status === 'streaming' && !explanation.text && (
+                  <p className="flex items-center gap-2 text-sm text-muted">
+                    <Loader2 className="size-4 animate-spin" /> Thinking…
+                  </p>
+                )}
+                {explanation.status === 'error' && (
+                  <div className="anim-fade-in mt-3 rounded-xl bg-danger-soft px-3 py-2.5 text-sm text-danger">
+                    <p>{explanation.error}</p>
+                    <Button size="sm" variant="secondary" className="mt-2" icon={<RotateCcw className="size-3.5" />} onClick={() => void explain()}>
+                      Try again
+                    </Button>
+                  </div>
+                )}
+                {explanation.status === 'done' && (
+                  <p className="mt-4 text-xs text-muted">
+                    <Badge>Tip</Badge> Highlight any phrase above to save it as a structure, word or idiom.
+                  </p>
+                )}
+              </section>
             </>
           ) : (
-            hasKey && <p className="text-sm text-muted">Press “Explain with my prompt” in the side panel to analyse this with the selected prompt.</p>
+            hasKey && <p className="mt-4 text-sm text-muted">Press “Explain with my prompt” in the side panel to analyse this with the selected prompt.</p>
           )}
         </div>
       </div>

@@ -11,6 +11,7 @@ import { Badge, Button, EmptyState, Select } from '@renderer/components/ui'
 import { Markdown } from '@renderer/components/Markdown'
 import { ChatDock } from '@renderer/features/movie/ExplainPanel'
 import { useArticles } from './articleStore'
+import { ExplainAnalysisView, ExplanationHeading, OriginalContext, useExplainPaperStyle } from '@renderer/features/explain/ExplainSections'
 
 const SOURCE_LABEL = { browser: 'In-app browser', reader: 'Reader view', chrome: 'From Chrome', ai: 'From the explanation' } as const
 
@@ -51,6 +52,7 @@ function SelectionView({ hasKey, explanation }: { hasKey: boolean; explanation: 
   const [busy, setBusy] = useState<'save' | 'card' | null>(null)
   const [savedId, setSavedId] = useState<number | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const paperStyle = useExplainPaperStyle()
   const { toast, toastError, refreshDue, setPage } = useApp.getState()
 
   useEffect(() => setKind(suggestedArticleKind(selection.text)), [selection.text])
@@ -171,7 +173,8 @@ function SelectionView({ hasKey, explanation }: { hasKey: boolean; explanation: 
         </div>
       </div>
 
-      <div ref={bodyRef} onMouseUp={onBodyMouseUp} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
+      {/* The reading surface: A Original, B Vocabulary, C Idioms & Phrasal Verbs, D Explanation. */}
+      <div ref={bodyRef} onMouseUp={onBodyMouseUp} className="explain-paper min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4" style={paperStyle}>
         {!hasKey && (
           <div className="mb-4 rounded-xl bg-info-soft px-3 py-2.5 text-sm text-info">
             Add your Gemini API key in{' '}
@@ -181,8 +184,17 @@ function SelectionView({ hasKey, explanation }: { hasKey: boolean; explanation: 
             to get explanations.
           </div>
         )}
+        <OriginalContext
+          text={selection.text}
+          sentence={selection.source !== 'ai' ? selection.sentence : null}
+          source={[selection.domain, selection.title && selection.title !== selection.domain ? selection.title : null].filter(Boolean).join(' · ') || null}
+        />
+        {explanation && explanation.status !== 'error' && (
+          <ExplainAnalysisView text={selection.text} sentence={selection.source !== 'ai' ? selection.sentence : null} context={selection.source !== 'ai' ? selection.paragraph : null} />
+        )}
         {explanation ? (
-          <div data-selection-scope="article" data-ai-text>
+          <section data-selection-scope="article" data-ai-text className="ex-section" aria-label="Explanation">
+            <ExplanationHeading />
             <p className="mb-2">
               <Badge tone="warn">AI-generated explanation</Badge>
             </p>
@@ -200,9 +212,9 @@ function SelectionView({ hasKey, explanation }: { hasKey: boolean; explanation: 
                 </Button>
               </div>
             )}
-          </div>
+          </section>
         ) : (
-          hasKey && <p className="text-sm text-muted">Press “Explain” for the Bangla meaning, grammar and examples. Or ask about it in the chat below.</p>
+          hasKey && <p className="mt-4 text-sm text-muted">Press “Explain” for the Bangla meaning, grammar and examples. Or ask about it in the chat below.</p>
         )}
       </div>
     </div>

@@ -29,7 +29,6 @@ import type {
   Prompt,
   ReviewRating,
   SettingsUpdate,
-  SentenceWord,
   StudyContext,
   SubtitleLine
 } from './types'
@@ -37,6 +36,7 @@ import type { FspCardType, FspCheckInput, FspCheckResult, FspErrorType, FspLesso
 import type { EwRequest } from './ew'
 import type { Article, ArticleDetail, ArticleInput, WebSelection } from './articles'
 import type { HomeWeather, WeatherReport } from './voice'
+import type { ExplainAnalysis } from './explainAnalysis'
 import type { LiveEvent } from './liveTools'
 import type { VbAnswer, VbBook, VbDashboard, VbDraft, VbExtraction, VbItem, VbItemEdit, VbMistake, VbSession, VbSource, VbSourceKind } from './vocabBook'
 
@@ -99,7 +99,8 @@ export interface Api {
   /** Streams deltas over the `ai:chunk` event; resolves with the full text. */
   'ai:explain': (args: { requestId: string; promptId: number | null; context: StudyContext }) => Promise<string>
   /** Movie Mode: the words and idioms of an explained sentence (Bangla meaning, easy synonyms, one example). */
-  'ai:sentenceWords': (sentence: string) => Promise<SentenceWord[]>
+  /** Explain: vocabulary, idioms and phrasal verbs of the selection, with meanings in this context. */
+  'ai:analyze': (args: { text: string; sentence: string | null; context: string | null }) => Promise<ExplainAnalysis>
   'ai:listModels': () => Promise<string[]>
 
   'chats:list': () => Promise<Chat[]>

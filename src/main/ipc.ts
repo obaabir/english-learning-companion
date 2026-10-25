@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { EwService } from './ew/EwService'
 import type { Content } from '@google/genai'
 import type { Api, ApiChannel, EventChannel, Events } from '@shared/ipcContract'
-import type { AppSettings, DocCategory, Note, PlayerKind, SentenceWord } from '@shared/types'
+import type { AppSettings, DocCategory, Note, PlayerKind } from '@shared/types'
+import type { ExplainAnalysis } from '@shared/explainAnalysis'
 import type { Db } from './db'
 import { getDocTarget, getMovieDoc, getSetting, listDocTargets, setDocTarget, setMovieDoc, setSetting } from './db/repos/settings'
 import { deletePrompt, listPrompts, resolvePrompt, savePrompt, setDefaultPrompt } from './db/repos/prompts'
@@ -44,7 +45,7 @@ import { PracticeRoom } from './practice/room'
 import { windowsVoiceWav } from './practice/voice'
 import { setDailyCap } from './db/repos/room'
 import { listRecentVideos, saveVideoPosition } from './db/repos/youtube'
-import { buildFocusedQuestion, buildStudyMessage, DEFAULT_MODEL, fallbackFlashcard, type GeminiService } from './ai/gemini'
+import { buildFocusedQuestion, buildStudyMessage, EXPLAIN_LIST_NOTE, DEFAULT_MODEL, fallbackFlashcard, type GeminiService } from './ai/gemini'
 import type { GoogleService } from './google/GoogleService'
 import { createNoteSync } from './notesSync'
 import { getArticleDetail, listArticles, recordArticle, setArticleNote } from './db/repos/articles'
@@ -236,14 +237,15 @@ export function registerIpc(s: Services): void {
   handle('prompts:setDefault', (id) => setDefaultPrompt(db, id))
 
   // ---- AI
-  // Movie Mode: words & idioms of an explained sentence (kept for this session, so asking again is instant).
-  const sentenceWordsCache = new Map<string, Promise<SentenceWord[]>>()
-  handle('ai:sentenceWords', (sentence) => {
-    if (!gemini.configured) throw new Error('Add your Gemini API key in Settings to see the words of the sentence.')
-    const key = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
+  // Explain: vocabulary, idioms and phrasal verbs of the selection (kept for this session, so asking again is instant).
+  const sentenceWordsCache = new Map<string, Promise<ExplainAnalysis>>()
+  handle('ai:analyze', (args) => {
+    if (!gemini.configured) throw new Error('Add your Gemini API key in Settings to see the vocabulary.')
+    const norm = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const key = `${norm(args.text)}|${norm(args.sentence)}`
     let job = sentenceWordsCache.get(key)
     if (!job) {
-      job = gemini.sentenceWords(sentence)
+      job = gemini.analyzeText(args)
       // A failed answer is not kept, so "Try again" asks Gemini again.
       job.catch(() => sentenceWordsCache.delete(key))
       if (sentenceWordsCache.size > 300) sentenceWordsCache.delete(sentenceWordsCache.keys().next().value!)
@@ -255,7 +257,7 @@ export function registerIpc(s: Services): void {
     const prompt = resolvePrompt(db, promptId)
     return gemini.stream({
       systemInstruction: prompt?.instruction,
-      contents: [{ role: 'user', parts: [{ text: buildStudyMessage(context) }] }],
+      contents: [{ role: 'user', parts: [{ text: buildStudyMessage(context) + EXPLAIN_LIST_NOTE }] }],
       onDelta: (delta) => send(s.window(), 'ai:chunk', { requestId, delta }),
       fast: true
     })
